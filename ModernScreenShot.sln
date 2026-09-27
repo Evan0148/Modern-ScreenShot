@@ -68,4 +68,7 @@ Global
 		{7E9C7D53-2A55-4521-8D71-BD9B7BA0CA93} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8486500C-7165-4349-9B73-858CDD549184} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		StartupItem = src\ModernScreenShot.App\ModernScreenShot.App.csproj
+	EndGlobalSection
 EndGlobal
