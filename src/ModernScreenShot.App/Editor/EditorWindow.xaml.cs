@@ -5,7 +5,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using ModernScreenShot.App.Capture;
+using ModernScreenShot.App.Effects;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Services;
@@ -46,7 +48,12 @@ public partial class EditorWindow : Window
         _textSection = null!, _mosaicSection = null!, _spotlightSection = null!, _magnifierSection = null!, _hintSection = null!;
     private TextBlock _hintText = null!;
     private Button _undoButton = null!, _redoButton = null!, _deleteButton = null!, _frontButton = null!, _backButton = null!;
+    private Button _effectsButton = null!;
     private TextBlock _zoomLabel = null!, _statusLabel = null!;
+    private EffectsPanel _effectsPanel = null!;
+    private bool _effectsVisible;
+    private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
+    private int _previewRunId;
 
     public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter)
     {
@@ -65,7 +72,9 @@ public partial class EditorWindow : Window
         BuildCanvas(result, editor);
         BuildToolbar();
         BuildProperties(editor);
+        BuildEffectsPanel();
         BuildActions();
+        _previewTimer.Tick += (_, _) => RenderPreview();
         _ready = true;
         UpdatePropertyPanel();
     }
@@ -491,6 +500,9 @@ public partial class EditorWindow : Window
         left.Children.Add(MakeToolButton(L.Get("Action.Save"), (_, _) => SaveQuick()));
         left.Children.Add(MakeToolButton(L.Get("Action.SaveAs"), (_, _) => SaveAsDialog()));
         left.Children.Add(MakeToolButton(L.Get("Action.Pin"), (_, _) => PinResult()));
+        left.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
+        _effectsButton = MakeToolButton(L.Get("Editor.Effects"), (_, _) => ToggleEffects());
+        left.Children.Add(_effectsButton);
         panel.Children.Add(left);
 
         ActionsHost.Child = panel;
@@ -616,6 +628,103 @@ public partial class EditorWindow : Window
         _textEditTarget = null;
         CanvasHost.Children.Remove(tb);
         if (commit) _canvas.CommitTextEdit(target, tb.Text, _textEditPosition);
+    }
+
+    // ---- effects panel ----
+
+    private void BuildEffectsPanel()
+    {
+        _effectsPanel = new EffectsPanel();
+        _effectsPanel.Bind(_canvas.Document.Effects, _settings);
+        _effectsPanel.SettingsChanged += (_, _) => { _dirty = true; SchedulePreview(); };
+        _canvas.DocumentChanged += (_, _) => SchedulePreview();
+
+        // Wrap the properties area in a grid so the two panels can be swapped.
+        var scroll = (ScrollViewer)PropertiesHost.Child;
+        PropertiesHost.Child = null; // disconnect before re-parenting
+        scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        var grid = new Grid();
+        grid.Children.Add(scroll);
+        grid.Children.Add(_effectsPanel);
+        _effectsPanel.Visibility = Visibility.Collapsed;
+        PropertiesHost.Child = grid;
+    }
+
+    private void ToggleEffects()
+    {
+        _effectsVisible = !_effectsVisible;
+        _effectsPanel.Visibility = _effectsVisible ? Visibility.Visible : Visibility.Collapsed;
+        _effectsButton.FontWeight = _effectsVisible ? FontWeights.Bold : FontWeights.Normal;
+        if (_effectsVisible) SchedulePreview();
+    }
+
+    private void SchedulePreview()
+    {
+        if (!_effectsVisible) return;
+        _previewTimer.Stop();
+        _previewTimer.Start();
+    }
+
+    /// <summary>Flattens the annotation view at reduced scale and composites effects on a background thread.</summary>
+    private void RenderPreview()
+    {
+        int id = ++_previewRunId;
+        PixelBuffer preview;
+        try
+        {
+            preview = RenderFlattenedPreview(1200);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Preview flatten failed", ex);
+            return;
+        }
+        var settings = _canvas.Document.Effects.Clone();
+        bool apply = settings.Enabled;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var composed = apply ? EffectPipeline.Compose(preview, settings) : preview;
+                var bitmap = composed.ToBitmapSource();
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (id == _previewRunId) _effectsPanel.SetPreview(bitmap);
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Preview compose failed", ex);
+            }
+        });
+    }
+
+    /// <summary>Same as RenderFlattened but rendered at a reduced scale (preview only).</summary>
+    private PixelBuffer RenderFlattenedPreview(int maxSide)
+    {
+        var doc = _canvas.Document;
+        var crop = doc.Crop ?? new PixelRect(0, 0, doc.ImageWidth, doc.ImageHeight);
+        if (crop.IsEmpty) crop = new PixelRect(0, 0, doc.ImageWidth, doc.ImageHeight);
+        double scale = Math.Min(1.0, maxSide / (double)Math.Max(crop.Width, crop.Height));
+        int w = Math.Max(1, (int)Math.Round(crop.Width * scale));
+        int h = Math.Max(1, (int)Math.Round(crop.Height * scale));
+
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            var transform = new TransformGroup();
+            transform.Children.Add(new ScaleTransform(scale, scale));
+            transform.Children.Add(new TranslateTransform(-crop.X, -crop.Y));
+            dc.PushClip(new RectangleGeometry(new Rect(0, 0, w, h)));
+            dc.PushTransform(transform);
+            dc.DrawImage(_canvas.BaseImage, new Rect(0, 0, doc.ImageWidth, doc.ImageHeight));
+            AnnotationRenderer.RenderDocument(dc, doc, _canvas.BaseImage, _canvas.MosaicSource);
+            dc.Pop();
+            dc.Pop();
+        }
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        return BitmapInterop.FromBitmapSource(rtb);
     }
 
     // ---- export ----
@@ -804,6 +913,10 @@ public partial class EditorWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         CloseTextOverlay(commit: false);
+        _previewTimer.Stop();
+        // Remember the last-used effect settings for the next capture.
+        _settings.Current.Effects = _canvas.Document.Effects.Clone();
+        _settings.Save();
         base.OnClosed(e);
     }
 }
