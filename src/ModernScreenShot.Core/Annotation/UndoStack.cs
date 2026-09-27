@@ -18,7 +18,13 @@ public sealed class UndoStack
     /// <summary>Call BEFORE mutating the document.</summary>
     public void Push(AnnotationDocument current)
     {
-        _undo.Add(Serialize(current));
+        PushSerialized(Serialize(current));
+    }
+
+    /// <summary>Pushes an already-serialized snapshot (lets the UI capture pre-mutation state before a drag starts).</summary>
+    public void PushSerialized(string json)
+    {
+        _undo.Add(json);
         if (_undo.Count > _limit) _undo.RemoveAt(0);
         _redo.Clear();
         Changed?.Invoke(this, EventArgs.Empty);

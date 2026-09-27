@@ -114,6 +114,8 @@
     <sys:String x:Key="Prop.MosaicMode">模式</sys:String>
     <sys:String x:Key="Prop.Pixelate">像素化</sys:String>
     <sys:String x:Key="Prop.BlurMode">模糊</sys:String>
+    <sys:String x:Key="Prop.ShapeRect">矩形</sys:String>
+    <sys:String x:Key="Prop.ShapeEllipse">椭圆</sys:String>
     <sys:String x:Key="Prop.Dim">暗化程度</sys:String>
     <sys:String x:Key="Prop.Shape">形状</sys:String>
 
@@ -226,6 +228,8 @@
     <sys:String x:Key="Editor.Properties">属性</sys:String>
     <sys:String x:Key="Editor.UnsavedTitle">放弃更改？</sys:String>
     <sys:String x:Key="Editor.UnsavedBody">这张截图尚未复制或保存，仍可在历史记录中找到。</sys:String>
+    <sys:String x:Key="Editor.SelectHint">点击选中标注，可拖动、缩放、删除；双击文字直接编辑。</sys:String>
+    <sys:String x:Key="Editor.CropHint">拖动选择裁剪范围，Enter 或双击应用，Esc 取消。再次按 Esc 可移除已有裁剪。</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot 已在后台运行</sys:String>

@@ -114,6 +114,8 @@
     <sys:String x:Key="Prop.MosaicMode">Mode</sys:String>
     <sys:String x:Key="Prop.Pixelate">Pixelate</sys:String>
     <sys:String x:Key="Prop.BlurMode">Blur</sys:String>
+    <sys:String x:Key="Prop.ShapeRect">Rectangle</sys:String>
+    <sys:String x:Key="Prop.ShapeEllipse">Ellipse</sys:String>
     <sys:String x:Key="Prop.Dim">Dim</sys:String>
     <sys:String x:Key="Prop.Shape">Shape</sys:String>
 
@@ -226,6 +228,8 @@
     <sys:String x:Key="Editor.Properties">Properties</sys:String>
     <sys:String x:Key="Editor.UnsavedTitle">Discard changes?</sys:String>
     <sys:String x:Key="Editor.UnsavedBody">This screenshot hasn't been copied or saved. It stays in History.</sys:String>
+    <sys:String x:Key="Editor.SelectHint">Click an annotation to select it, then drag, resize or delete it. Double-click text to edit it.</sys:String>
+    <sys:String x:Key="Editor.CropHint">Drag to choose a crop area, then press Enter or double-click to apply. Esc cancels; press Esc again to remove an applied crop.</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>

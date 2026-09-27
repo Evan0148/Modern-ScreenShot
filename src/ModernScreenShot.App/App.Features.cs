@@ -1,9 +1,10 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using ModernScreenShot.App.Capture;
-using ModernScreenShot.App.Interop;
+using ModernScreenShot.App.Editor;
+using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
 
@@ -14,12 +15,16 @@ namespace ModernScreenShot.App;
 /// </summary>
 public partial class App
 {
-    /// <summary>Set by the shell module (T8). While false, the app exits after a one-shot --capture run.</summary>
-    private bool ShellStarted { get; set; }
+    /// <summary>True once the tray shell (T8) is running; then the app stays resident.</summary>
+    private bool TrayStarted { get; set; }
+
+    private readonly List<Window> EditorWindows = [];
 
     partial void RegisterFeatureServices(IServiceCollection services)
     {
         services.AddSingleton<CaptureService>();
+        services.AddSingleton<ClipboardService>();
+        services.AddSingleton<ImageExporter>();
     }
 
     partial void OnStartupCompleted(string[] args)
@@ -32,13 +37,25 @@ public partial class App
         {
             Log.Info("No capture request; shell features (tray/hotkeys) arrive with T8.");
         }
-        if (!ShellStarted) Shutdown(0);
+        if (!TrayStarted && EditorWindows.Count == 0) Shutdown(0);
     }
 
     partial void OnSmokeTest(IServiceProvider services)
     {
         _ = services.GetRequiredService<CaptureService>();
-        Log.Info("smoke: CaptureService resolved (overlay windows are intentionally not instantiated).");
+        _ = services.GetRequiredService<ClipboardService>();
+        _ = services.GetRequiredService<ImageExporter>();
+        // Instantiate the editor off-screen to catch XAML/ctor regressions in both languages.
+        var testResult = new CaptureResult
+        {
+            Image = new PixelBuffer(64, 48),
+            Mode = CaptureMode.Region,
+            SourceRect = new PixelRect(0, 0, 64, 48),
+        };
+        var editor = new EditorWindow(testResult, services.GetRequiredService<SettingsStore>(),
+            services.GetRequiredService<ClipboardService>(), services.GetRequiredService<ImageExporter>());
+        editor.Close();
+        Log.Info("smoke: CaptureService and EditorWindow resolved/instantiated (overlay is intentionally not shown).");
     }
 
     private void RunCapture(CaptureMode mode)
@@ -62,7 +79,7 @@ public partial class App
 
     /// <summary>
     /// Post-capture routing. The overlay toolbar supplies an explicit action for region/window picks;
-    /// other modes follow the settings. Editor (T5) and pin (T7) fall back to copying until implemented.
+    /// other modes follow the settings. Pin (T7) falls back to the editor until implemented.
     /// </summary>
     private void DispatchCaptureResult(CaptureResult result)
     {
@@ -79,12 +96,9 @@ public partial class App
                 QuickSave(result, store);
                 break;
             case AfterCaptureAction.OpenEditor:
-                Log.Info("Editor is not implemented yet (T5); copying to clipboard instead.");
-                CopyToClipboard(result);
-                break;
             case AfterCaptureAction.Pin:
-                Log.Info("Pin window is not implemented yet (T7); copying to clipboard instead.");
-                CopyToClipboard(result);
+                if (action == AfterCaptureAction.Pin) Log.Info("Pin window is not implemented yet (T7); opening the editor instead.");
+                OpenEditor(result);
                 break;
             default: // CopyOnly; ShowToolbar is handled by the overlay itself, which always supplies an intent
                 CopyToClipboard(result);
@@ -92,40 +106,34 @@ public partial class App
         }
     }
 
+    private void OpenEditor(CaptureResult result)
+    {
+        var editor = new EditorWindow(result, Services.GetRequiredService<SettingsStore>(),
+            Services.GetRequiredService<ClipboardService>(), Services.GetRequiredService<ImageExporter>());
+        editor.Closed += OnEditorClosed;
+        EditorWindows.Add(editor);
+        editor.Show();
+        editor.Activate();
+        Log.Info($"Editor opened for {result.Mode} capture ({result.Image.Width}x{result.Image.Height}).");
+    }
+
+    private void OnEditorClosed(object? sender, EventArgs e)
+    {
+        if (sender is Window w) EditorWindows.Remove(w);
+        if (EditorWindows.Count == 0 && !TrayStarted) Shutdown(0);
+    }
+
     private static void CopyToClipboard(CaptureResult result)
     {
-        for (int attempt = 1; ; attempt++)
-        {
-            try
-            {
-                Clipboard.SetImage(result.Image.ToBitmapSource());
-                Log.Info("Capture copied to clipboard.");
-                return;
-            }
-            catch (ExternalException) when (attempt < 10)
-            {
-                Thread.Sleep(50);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Clipboard copy failed", ex);
-                return;
-            }
-        }
+        if (Services.GetRequiredService<ClipboardService>().TryPutImage(result.Image))
+            Log.Info("Capture copied to clipboard.");
     }
 
     private void QuickSave(CaptureResult result, SettingsStore store)
     {
         try
         {
-            var output = store.Current.Output;
-            string dir = string.IsNullOrWhiteSpace(output.SaveDirectory) ? AppPaths.DefaultSaveDir : output.SaveDirectory;
-            string baseName = FileNameTemplate.Format(output.FileNameTemplate, result.Time, output.Counter,
-                result.WindowTitle, result.Mode.ToString());
-            string path = FileNameTemplate.GetUniquePath(dir, baseName, ".png");
-            BitmapInterop.SavePng(result.Image, path);
-            output.Counter++;
-            store.Save();
+            var path = Services.GetRequiredService<ImageExporter>().QuickSave(result.Image, result.WindowTitle, result.Mode.ToString());
             Log.Info($"Capture saved to {path}");
         }
         catch (Exception ex)

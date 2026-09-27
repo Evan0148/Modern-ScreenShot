@@ -87,11 +87,18 @@ internal static class Program
             Check(outImg.Width >= img.Width, $"pipeline {preset.Name} ({sw.ElapsedMilliseconds} ms, {outImg.Width}x{outImg.Height})");
         }
 
+        // The 4K buffers below add up to several hundred MB of large-object allocations; release the
+        // earlier test buffers first so the suite stays reliable on machines under commit pressure.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+
         var big = Sample(3840, 2160);
         var sw4k = Stopwatch.StartNew();
         EffectPipeline.Compose(big, BuiltInPresets.Mirror().Settings);
         sw4k.Stop();
         Check(sw4k.ElapsedMilliseconds < 3000, $"4K Mirror pipeline {sw4k.ElapsedMilliseconds} ms");
+        big = null;
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
 
         var mos = img.Clone();
         Mosaic.Pixelate(mos, new PixelRect(20, 20, 100, 100), 10);
