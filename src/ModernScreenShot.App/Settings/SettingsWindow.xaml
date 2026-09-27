@@ -1,0 +1,211 @@
+<Window x:Class="ModernScreenShot.App.Settings.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{DynamicResource Settings.Title}"
+        Width="640" Height="660"
+        MinWidth="580" MinHeight="560"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <Style x:Key="FormLabel" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,8,20,8"/>
+        </Style>
+        <Style x:Key="FormField" TargetType="Control">
+            <Setter Property="Margin" Value="0,4,0,4"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Padding="12,10"
+                BorderBrush="#22000000" BorderThickness="0,1,0,0">
+            <Button Content="{DynamicResource Action.Ok}" MinWidth="120"
+                    HorizontalAlignment="Right" Click="OnOk"/>
+        </Border>
+
+        <TabControl Margin="8">
+
+            <!-- General -->
+            <TabItem Header="{DynamicResource Settings.General}">
+                <Grid Margin="24,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
+                               Text="{DynamicResource Settings.Language}"/>
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LanguageBox" Width="220"
+                              HorizontalAlignment="Left" Margin="0,4,0,4"
+                              SelectionChanged="OnLanguageSelectionChanged">
+                        <ComboBoxItem Content="{DynamicResource Settings.LangSystem}"/>
+                        <ComboBoxItem Content="{DynamicResource Tray.LangChinese}"/>
+                        <ComboBoxItem Content="{DynamicResource Tray.LangEnglish}"/>
+                    </ComboBox>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"
+                               Text="{DynamicResource Settings.Theme}"/>
+                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ThemeBox" Width="220"
+                              HorizontalAlignment="Left" Margin="0,4,0,4"
+                              SelectionChanged="OnThemeSelectionChanged">
+                        <ComboBoxItem Content="{DynamicResource Settings.ThemeSystem}"/>
+                        <ComboBoxItem Content="{DynamicResource Settings.ThemeLight}"/>
+                        <ComboBoxItem Content="{DynamicResource Settings.ThemeDark}"/>
+                    </ComboBox>
+                    <CheckBox Grid.Row="2" Grid.Column="1" x:Name="StartWithWindowsBox"
+                              Margin="0,8,0,4" Content="{DynamicResource Settings.StartWithWindows}"
+                              Checked="OnStartWithWindowsChanged" Unchecked="OnStartWithWindowsChanged"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Hotkeys -->
+            <TabItem Header="{DynamicResource Settings.Hotkeys}">
+                <DockPanel Margin="24,12">
+                    <TextBlock DockPanel.Dock="Bottom" Margin="0,10,0,0" TextWrapping="Wrap"
+                               Foreground="Gray" Text="{DynamicResource Settings.HotkeyHint}"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="HotkeyPanel" Margin="0,4"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+
+            <!-- Capture -->
+            <TabItem Header="{DynamicResource Settings.Capture}">
+                <Grid Margin="24,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
+                               Text="{DynamicResource Settings.DelaySeconds}"/>
+                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="DelayBox" Width="80"
+                             HorizontalAlignment="Left" Margin="0,4,0,4"/>
+                    <CheckBox Grid.Row="1" Grid.Column="1" x:Name="ShowMagnifierBox" Margin="0,8,0,4"
+                              Content="{DynamicResource Settings.ShowMagnifier}"/>
+                    <CheckBox Grid.Row="2" Grid.Column="1" x:Name="CaptureCursorBox" Margin="0,8,0,4"
+                              Content="{DynamicResource Settings.CaptureCursor}"/>
+                    <CheckBox Grid.Row="3" Grid.Column="1" x:Name="TransparentCornersBox" Margin="0,8,0,4"
+                              Content="{DynamicResource Settings.TransparentCorners}"/>
+                    <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource FormLabel}"
+                               Text="{DynamicResource Settings.HistoryMax}"/>
+                    <TextBox Grid.Row="4" Grid.Column="1" x:Name="HistoryMaxBox" Width="80"
+                             HorizontalAlignment="Left" Margin="0,4,0,4"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Output -->
+            <TabItem Header="{DynamicResource Settings.Output}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="24,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.SaveDir}"/>
+                        <DockPanel Grid.Row="0" Grid.Column="1" Margin="0,4,0,4">
+                            <Button DockPanel.Dock="Right" Content="{DynamicResource Settings.Browse}"
+                                    MinWidth="80" Margin="8,0,0,0" Click="OnBrowseSaveDir"/>
+                            <TextBox x:Name="SaveDirBox" VerticalContentAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.Format}"/>
+                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FormatBox" Width="160"
+                                  HorizontalAlignment="Left" Margin="0,4,0,4">
+                            <ComboBoxItem Content="PNG"/>
+                            <ComboBoxItem Content="JPG"/>
+                            <ComboBoxItem Content="WebP"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.JpgQuality}"/>
+                        <DockPanel Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" Margin="0,4,0,4">
+                            <TextBlock DockPanel.Dock="Right" x:Name="JpgQualityValue" Width="32"
+                                       TextAlignment="Right" VerticalAlignment="Center"/>
+                            <Slider x:Name="JpgQualitySlider" Minimum="1" Maximum="100"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    ValueChanged="OnQualityChanged"/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.WebPQuality}"/>
+                        <DockPanel Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="0,4,0,4">
+                            <TextBlock DockPanel.Dock="Right" x:Name="WebPQualityValue" Width="32"
+                                       TextAlignment="Right" VerticalAlignment="Center"/>
+                            <Slider x:Name="WebPQualitySlider" Minimum="1" Maximum="100"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    ValueChanged="OnQualityChanged"/>
+                        </DockPanel>
+                        <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.FileTemplate}"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="TemplateBox" Margin="0,4,0,4"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,8" TextWrapping="Wrap"
+                                   Foreground="Gray" Text="{DynamicResource Settings.TemplateHelp}"/>
+                        <CheckBox Grid.Row="6" Grid.Column="1" x:Name="AutoSaveBox" Margin="0,4,0,8"
+                                  Content="{DynamicResource Settings.AutoSave}"/>
+                        <CheckBox Grid.Row="7" Grid.Column="1" x:Name="AutoCopyBox" Margin="0,4,0,8"
+                                  Content="{DynamicResource Settings.AutoCopy}"/>
+                        <TextBlock Grid.Row="8" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.AfterRegion}"/>
+                        <ComboBox Grid.Row="8" Grid.Column="1" x:Name="AfterRegionBox" Width="220"
+                                  HorizontalAlignment="Left" Margin="0,4,0,4">
+                            <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                        </ComboBox>
+                        <TextBlock Grid.Row="9" Grid.Column="0" Style="{StaticResource FormLabel}"
+                                   Text="{DynamicResource Settings.AfterOther}"/>
+                        <ComboBox Grid.Row="9" Grid.Column="1" x:Name="AfterOtherBox" Width="220"
+                                  HorizontalAlignment="Left" Margin="0,4,0,4">
+                            <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                        </ComboBox>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Effects -->
+            <TabItem Header="{DynamicResource Settings.Effects}">
+                <StackPanel Margin="24,16">
+                    <CheckBox x:Name="ApplyEffectsBox" Content="{DynamicResource Effects.Enabled}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- About -->
+            <TabItem Header="{DynamicResource Settings.About}">
+                <StackPanel Margin="24,16">
+                    <TextBlock x:Name="VersionText" FontWeight="SemiBold" Margin="0,4"/>
+                    <TextBlock x:Name="SettingsPathText" Foreground="Gray" TextWrapping="Wrap" Margin="0,4"/>
+                    <Button Content="{DynamicResource Settings.OpenLog}" MinWidth="140"
+                            HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnOpenLog"/>
+                </StackPanel>
+            </TabItem>
+
+        </TabControl>
+    </DockPanel>
+</Window>

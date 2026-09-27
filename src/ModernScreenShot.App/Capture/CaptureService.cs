@@ -27,16 +27,25 @@ public sealed class CaptureService
 
     /// <summary>
     /// Runs a capture on the calling (UI) thread. Returns null when the user cancels or when the
-    /// mode is not available yet (delay countdown: T8, scrolling: T9).
+    /// mode is not available yet (scrolling capture arrives with T9). DelayRegion shows the
+    /// countdown bubble first and continues as a region capture when it is not cancelled.
     /// </summary>
     public CaptureResult? Capture(CaptureMode mode)
     {
         try
         {
+            if (mode == CaptureMode.DelayRegion)
+            {
+                if (!CountdownWindow.Run(_settings.Current.Capture.DelaySeconds, _monitors))
+                {
+                    Log.Info("Delayed capture cancelled during the countdown.");
+                    return null;
+                }
+                mode = CaptureMode.Region;
+            }
             return mode switch
             {
                 CaptureMode.Region or CaptureMode.WindowPick => CaptureViaOverlay(mode),
-                CaptureMode.DelayRegion => CaptureViaOverlay(CaptureMode.Region), // countdown bubble arrives with T8
                 CaptureMode.Fullscreen => CaptureScreen(_monitors.GetCursorMonitor().Bounds, CaptureMode.Fullscreen),
                 CaptureMode.AllMonitors => CaptureScreen(_monitors.GetVirtualScreen(), CaptureMode.AllMonitors),
                 CaptureMode.ActiveWindow => CaptureActiveWindow(),

@@ -2,13 +2,19 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Editor;
+using ModernScreenShot.App.Localization;
 using ModernScreenShot.App.Output;
+using ModernScreenShot.App.Overlay;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.App.Settings;
+using ModernScreenShot.App.Shell;
 using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.History;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
+using Backdrop = Wpf.Ui.Controls.WindowBackdropType;
+using L = ModernScreenShot.App.Localization.LocalizationService;
 
 namespace ModernScreenShot.App;
 
@@ -17,10 +23,15 @@ namespace ModernScreenShot.App;
 /// </summary>
 public partial class App
 {
-    /// <summary>True once the tray shell (T8) is running; then the app stays resident.</summary>
+    /// <summary>True once the tray shell is running; then the app stays resident.</summary>
     private bool TrayStarted { get; set; }
 
     private readonly List<Window> EditorWindows = [];
+
+    private SingleInstance? _singleInstance;
+    private HotkeyService? _hotkeys;
+    private TrayService? _tray;
+    private SettingsWindow? _settingsWindow;
 
     partial void RegisterFeatureServices(IServiceCollection services)
     {
@@ -28,18 +39,41 @@ public partial class App
         services.AddSingleton<ClipboardService>();
         services.AddSingleton<ImageExporter>();
         services.AddSingleton<HistoryRecorder>();
+        // Shell services: constructors are side-effect free; Start() is called explicitly below.
+        services.AddSingleton<SingleInstance>();
+        services.AddSingleton<HotkeyService>();
+        services.AddSingleton<TrayService>();
     }
 
     partial void OnStartupCompleted(string[] args)
     {
-        if (ParseCaptureArg(args) is { } mode)
+        // Single instance: when another instance already owns the mutex, hand it the command line
+        // and exit without touching anything else.
+        var single = Services.GetRequiredService<SingleInstance>();
+        if (!single.TryStart(OnForwardedArguments))
         {
-            RunCapture(mode);
+            if (!SingleInstance.TryForward(args))
+                Log.Warn("Another instance is running but the arguments could not be forwarded.");
+            Shutdown(0);
+            return;
         }
-        else
+
+        try
         {
-            Log.Info("No capture request; shell features (tray/hotkeys) arrive with T8.");
+            StartShell(single);
         }
+        catch (Exception ex)
+        {
+            Log.Error("Tray shell startup failed", ex);
+            if (ParseCaptureArg(args) is null)
+            {
+                Shutdown(1);
+                return;
+            }
+            // With an explicit capture request the capture itself may still work; fall through.
+        }
+
+        if (ParseCaptureArg(args) is { } mode) RunCapture(mode);
         if (!TrayStarted && EditorWindows.Count == 0) Shutdown(0);
     }
 
@@ -48,6 +82,10 @@ public partial class App
         _ = services.GetRequiredService<CaptureService>();
         _ = services.GetRequiredService<ClipboardService>();
         _ = services.GetRequiredService<ImageExporter>();
+        // Shell services resolve without side effects (tray icon / hotkeys / mutex start explicitly).
+        _ = services.GetRequiredService<SingleInstance>();
+        _ = services.GetRequiredService<HotkeyService>();
+        _ = services.GetRequiredService<TrayService>();
         // Instantiate the editor off-screen to catch XAML/ctor regressions in both languages.
         var testResult = new CaptureResult
         {
@@ -62,7 +100,154 @@ public partial class App
             services.GetRequiredService<SettingsStore>(), services.GetRequiredService<ClipboardService>(),
             (_, _) => { });
         history.Close();
-        Log.Info("smoke: CaptureService, EditorWindow and HistoryWindow instantiated (overlay not shown).");
+        var settings = new SettingsWindow(services.GetRequiredService<SettingsStore>(),
+            services.GetRequiredService<LocalizationService>(),
+            services.GetRequiredService<HotkeyService>(), _ => { });
+        settings.Close();
+        var countdown = new CountdownWindow();
+        countdown.Close();
+        Log.Info("smoke: shell services, SettingsWindow and CountdownWindow instantiated (nothing shown).");
+    }
+
+    // ---- shell ----
+
+    private void StartShell(SingleInstance single)
+    {
+        var hotkeys = Services.GetRequiredService<HotkeyService>();
+        hotkeys.HotkeyPressed += OnHotkeyAction;
+        hotkeys.Start();
+
+        var tray = Services.GetRequiredService<TrayService>();
+        tray.Start(new TrayService.Actions
+        {
+            RunCapture = RunCapture,
+            RunDelayedCapture = RunDelayedCapture,
+            OpenHistory = OpenHistory,
+            OpenSettings = OpenSettings,
+            Exit = ExitApp,
+        });
+
+        _singleInstance = single;
+        _hotkeys = hotkeys;
+        _tray = tray;
+        TrayStarted = true;
+
+        ApplyTheme(Services.GetRequiredService<SettingsStore>().Current.Theme);
+        ShowFirstRunNotice();
+        Application.Current.Exit += OnAppExitCleanup;
+        Log.Info("Tray shell started (tray icon, hotkeys, single-instance listener).");
+    }
+
+    /// <summary>Applies the stored theme ("System"/"Light"/"Dark") via WPF-UI.</summary>
+    internal static void ApplyTheme(string theme)
+    {
+        try
+        {
+            var appTheme = theme switch
+            {
+                "Light" => Wpf.Ui.Appearance.ApplicationTheme.Light,
+                "Dark" => Wpf.Ui.Appearance.ApplicationTheme.Dark,
+                _ => Wpf.Ui.Appearance.ApplicationThemeManager.GetSystemTheme() == Wpf.Ui.Appearance.SystemTheme.Dark
+                    ? Wpf.Ui.Appearance.ApplicationTheme.Dark
+                    : Wpf.Ui.Appearance.ApplicationTheme.Light,
+            };
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(appTheme, Backdrop.None, false);
+            Log.Info($"Theme applied: '{theme}' -> {appTheme}.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Theme '{theme}' could not be applied: {ex.Message}");
+        }
+    }
+
+    private void ShowFirstRunNotice()
+    {
+        var store = Services.GetRequiredService<SettingsStore>();
+        if (store.Current.FirstRunShown) return;
+        _tray?.ShowNotification(L.Get("FirstRun.Title"), L.Get("FirstRun.Body"));
+        store.Current.FirstRunShown = true;
+        try
+        {
+            store.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Persisting FirstRunShown failed", ex);
+        }
+        Log.Info("First run notice shown.");
+    }
+
+    private void OnForwardedArguments(string[] args)
+    {
+        if (ParseCaptureArg(args) is not { } mode)
+        {
+            Log.Info("Forwarded arguments contained no capture mode; ignored.");
+            return;
+        }
+        RunCapture(mode);
+    }
+
+    private void OnHotkeyAction(string action)
+    {
+        if (action == HotkeyActions.History)
+        {
+            OpenHistory();
+            return;
+        }
+        CaptureMode? mode = action switch
+        {
+            HotkeyActions.Region => CaptureMode.Region,
+            HotkeyActions.Fullscreen => CaptureMode.Fullscreen,
+            HotkeyActions.AllMonitors => CaptureMode.AllMonitors,
+            HotkeyActions.ActiveWindow => CaptureMode.ActiveWindow,
+            HotkeyActions.WindowPick => CaptureMode.WindowPick,
+            HotkeyActions.DelayRegion => CaptureMode.DelayRegion,
+            HotkeyActions.LastRegion => CaptureMode.LastRegion,
+            HotkeyActions.Scrolling => CaptureMode.Scrolling,
+            _ => null,
+        };
+        if (mode is { } m) RunCapture(m);
+        else Log.Warn($"Unknown hotkey action '{action}'.");
+    }
+
+    /// <summary>Tray delay submenu: countdown first (3/5/10 s), then a region capture.</summary>
+    private void RunDelayedCapture(int seconds)
+    {
+        if (CountdownWindow.Run(seconds, Services.GetRequiredService<MonitorService>()))
+            RunCapture(CaptureMode.Region);
+        else
+            Log.Info($"Delayed capture ({seconds}s) cancelled.");
+    }
+
+    private void OpenSettings()
+    {
+        if (_settingsWindow is { IsLoaded: true })
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+        _settingsWindow = new SettingsWindow(Services.GetRequiredService<SettingsStore>(),
+            Services.GetRequiredService<LocalizationService>(), _hotkeys,
+            message => _tray?.ShowNotification(L.Get("Settings.Title"), message));
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
+        Log.Info("Settings window opened.");
+    }
+
+    private void ExitApp()
+    {
+        Log.Info("Exit requested from the tray menu.");
+        _tray?.Dispose(); // remove the tray icon before shutdown so it never lingers
+        Application.Current.Shutdown();
+    }
+
+    private void OnAppExitCleanup(object sender, ExitEventArgs e)
+    {
+        // Idempotent: the service provider also disposes these singletons afterwards.
+        _tray?.Dispose();
+        _hotkeys?.Dispose();
+        _singleInstance?.Dispose();
     }
 
     private void RunCapture(CaptureMode mode)
@@ -180,7 +365,7 @@ public partial class App
         }
     }
 
-    /// <summary>Opens the history window (tray menu / hotkey land here in T8).</summary>
+    /// <summary>Opens the history window (tray menu / hotkey).</summary>
     private void OpenHistory()
     {
         var win = new HistoryWindow(Services.GetRequiredService<HistoryStore>(),

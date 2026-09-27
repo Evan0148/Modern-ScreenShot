@@ -187,6 +187,7 @@
     <sys:String x:Key="Settings.TransparentCorners">窗口截图保留透明圆角</sys:String>
     <sys:String x:Key="Settings.HistoryMax">历史记录上限（条）</sys:String>
     <sys:String x:Key="Settings.PressKeys">请按下组合键…</sys:String>
+    <sys:String x:Key="Settings.HotkeyHint">点击按钮后按下组合键；按 Esc 清除该绑定，重复的键位会标红。</sys:String>
     <sys:String x:Key="Settings.Clear">清除</sys:String>
     <sys:String x:Key="Settings.Conflict">已被占用</sys:String>
     <sys:String x:Key="Settings.Version">版本 {0}</sys:String>

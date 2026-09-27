@@ -187,6 +187,7 @@
     <sys:String x:Key="Settings.TransparentCorners">Transparent rounded corners for window captures</sys:String>
     <sys:String x:Key="Settings.HistoryMax">History size (items)</sys:String>
     <sys:String x:Key="Settings.PressKeys">Press a key combination…</sys:String>
+    <sys:String x:Key="Settings.HotkeyHint">Click a button, then press the combination. Esc clears the binding; duplicates are marked red.</sys:String>
     <sys:String x:Key="Settings.Clear">Clear</sys:String>
     <sys:String x:Key="Settings.Conflict">Already in use</sys:String>
     <sys:String x:Key="Settings.Version">Version {0}</sys:String>
