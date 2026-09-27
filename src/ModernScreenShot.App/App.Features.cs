@@ -4,6 +4,8 @@ using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Editor;
 using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.Core.Annotation;
+using ModernScreenShot.Core.History;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
@@ -25,6 +27,7 @@ public partial class App
         services.AddSingleton<CaptureService>();
         services.AddSingleton<ClipboardService>();
         services.AddSingleton<ImageExporter>();
+        services.AddSingleton<HistoryRecorder>();
     }
 
     partial void OnStartupCompleted(string[] args)
@@ -55,7 +58,11 @@ public partial class App
         var editor = new EditorWindow(testResult, services.GetRequiredService<SettingsStore>(),
             services.GetRequiredService<ClipboardService>(), services.GetRequiredService<ImageExporter>());
         editor.Close();
-        Log.Info("smoke: CaptureService and EditorWindow resolved/instantiated (overlay is intentionally not shown).");
+        var history = new HistoryWindow(services.GetRequiredService<HistoryStore>(),
+            services.GetRequiredService<SettingsStore>(), services.GetRequiredService<ClipboardService>(),
+            (_, _) => { });
+        history.Close();
+        Log.Info("smoke: CaptureService, EditorWindow and HistoryWindow instantiated (overlay not shown).");
     }
 
     private void RunCapture(CaptureMode mode)
@@ -78,8 +85,8 @@ public partial class App
     }
 
     /// <summary>
-    /// Post-capture routing. The overlay toolbar supplies an explicit action for region/window picks;
-    /// other modes follow the settings. Pin (T7) falls back to the editor until implemented.
+    /// Post-capture routing. Every confirmed capture is recorded in history (original + document +
+    /// thumbnail); then the action from the overlay toolbar or the settings is executed.
     /// </summary>
     private void DispatchCaptureResult(CaptureResult result)
     {
@@ -90,15 +97,27 @@ public partial class App
                 ? output.AfterRegionCapture
                 : output.AfterOtherCapture);
         Log.Info($"Dispatching {result.Mode} capture {result.Image.Width}x{result.Image.Height} via {action}.");
+
+        var doc = new AnnotationDocument
+        {
+            ImageWidth = result.Image.Width,
+            ImageHeight = result.Image.Height,
+            Effects = store.Current.Effects.Clone(),
+            WindowTitle = result.WindowTitle,
+            CaptureMode = result.Mode.ToString(),
+        };
+        Services.GetRequiredService<HistoryRecorder>().Record(result.Image, doc);
+
         switch (action)
         {
             case AfterCaptureAction.SaveOnly:
                 QuickSave(result, store);
                 break;
             case AfterCaptureAction.OpenEditor:
+                OpenEditor(result, doc);
+                break;
             case AfterCaptureAction.Pin:
-                if (action == AfterCaptureAction.Pin) Log.Info("Pin window is not implemented yet (T7); opening the editor instead.");
-                OpenEditor(result);
+                PinCapture(result);
                 break;
             default: // CopyOnly; ShowToolbar is handled by the overlay itself, which always supplies an intent
                 CopyToClipboard(result);
@@ -106,15 +125,72 @@ public partial class App
         }
     }
 
-    private void OpenEditor(CaptureResult result)
+    private void OpenEditor(CaptureResult result, AnnotationDocument? document = null)
     {
         var editor = new EditorWindow(result, Services.GetRequiredService<SettingsStore>(),
-            Services.GetRequiredService<ClipboardService>(), Services.GetRequiredService<ImageExporter>());
+            Services.GetRequiredService<ClipboardService>(), Services.GetRequiredService<ImageExporter>(),
+            document,
+            image => new PinWindow(image, Services.GetRequiredService<ImageExporter>(),
+                Services.GetRequiredService<ClipboardService>(), OpenEditorForImage, OpenDefaultSaveFolder));
         editor.Closed += OnEditorClosed;
         EditorWindows.Add(editor);
         editor.Show();
         editor.Activate();
         Log.Info($"Editor opened for {result.Mode} capture ({result.Image.Width}x{result.Image.Height}).");
+    }
+
+    private void OpenEditorForImage(PixelBuffer image)
+    {
+        var result = new CaptureResult
+        {
+            Image = image,
+            Mode = CaptureMode.Region,
+            SourceRect = new PixelRect(0, 0, image.Width, image.Height),
+        };
+        OpenEditor(result);
+    }
+
+    private void PinCapture(CaptureResult result)
+    {
+        var pin = new PinWindow(result.Image, Services.GetRequiredService<ImageExporter>(),
+            Services.GetRequiredService<ClipboardService>(), OpenEditorForImage, OpenDefaultSaveFolder);
+        pin.Closed += OnEditorClosed;
+        EditorWindows.Add(pin); // same lifetime rule: keep the app alive while any floating window exists
+        pin.Show();
+        pin.Activate();
+        Log.Info($"Pinned {result.Image.Width}x{result.Image.Height} to screen.");
+    }
+
+    private static string OpenDefaultSaveFolder()
+    {
+        try
+        {
+            var store = Services.GetRequiredService<SettingsStore>();
+            string dir = string.IsNullOrWhiteSpace(store.Current.Output.SaveDirectory)
+                ? AppPaths.DefaultSaveDir
+                : store.Current.Output.SaveDirectory;
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+            return dir;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Opening the save folder failed", ex);
+            return AppPaths.DefaultSaveDir;
+        }
+    }
+
+    /// <summary>Opens the history window (tray menu / hotkey land here in T8).</summary>
+    private void OpenHistory()
+    {
+        var win = new HistoryWindow(Services.GetRequiredService<HistoryStore>(),
+            Services.GetRequiredService<SettingsStore>(), Services.GetRequiredService<ClipboardService>(),
+            (result, doc) => OpenEditor(result, doc));
+        win.Closed += OnEditorClosed;
+        EditorWindows.Add(win);
+        win.Show();
+        win.Activate();
+        Log.Info("History window opened.");
     }
 
     private void OnEditorClosed(object? sender, EventArgs e)

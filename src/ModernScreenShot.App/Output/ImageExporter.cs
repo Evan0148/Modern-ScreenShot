@@ -1,4 +1,5 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Services;
@@ -59,18 +60,20 @@ public sealed class ImageExporter
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        if (format == ImageFormat.WebP)
-        {
-            // SkiaSharp WebP encoding is wired up in T7; until then fall back to PNG.
-            Log.Warn("WebP export is not implemented yet (T7); saving PNG instead.");
-            format = ImageFormat.Png;
-        }
         try
         {
-            if (format == ImageFormat.Jpg)
-                SaveWithEncoder(new JpegBitmapEncoder { QualityLevel = Math.Clamp(jpgQuality, 1, 100) }, image, path);
-            else
-                SaveWithEncoder(new PngBitmapEncoder(), image, path);
+            switch (format)
+            {
+                case ImageFormat.Jpg:
+                    SaveWithEncoder(new JpegBitmapEncoder { QualityLevel = Math.Clamp(jpgQuality, 1, 100) }, image, path);
+                    break;
+                case ImageFormat.WebP:
+                    SaveWebP(image, path, _settings.Current.Output.WebPQuality);
+                    break;
+                default:
+                    SaveWithEncoder(new PngBitmapEncoder(), image, path);
+                    break;
+            }
             Log.Info($"Saved image to {path}");
         }
         catch (Exception ex)
@@ -78,6 +81,18 @@ public sealed class ImageExporter
             Log.Error($"Saving {path} failed", ex);
             throw;
         }
+    }
+
+    /// <summary>Encodes WebP via SkiaSharp. Screenshot pixels are straight BGRA which maps 1:1.</summary>
+    private static void SaveWebP(PixelBuffer image, string path, int quality)
+    {
+        using var bitmap = new SkiaSharp.SKBitmap(image.Width, image.Height,
+            SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Unpremul);
+        Marshal.Copy(image.Data, 0, bitmap.GetPixels(), image.Data.Length);
+        using var skImage = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = skImage.Encode(SkiaSharp.SKEncodedImageFormat.Webp, Math.Clamp(quality, 1, 100));
+        using var fs = File.Create(Path.GetFullPath(path));
+        data.SaveTo(fs);
     }
 
     private static void SaveWithEncoder(BitmapEncoder encoder, PixelBuffer image, string path)

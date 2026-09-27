@@ -52,6 +52,21 @@ public static class BitmapInterop
         encoder.Save(fs);
     }
 
+    /// <summary>Saves a PNG downscaled so the longer side is at most <paramref name="maxSide"/> px (thumbnails).</summary>
+    public static void SavePngScaled(PixelBuffer buffer, string path, int maxSide)
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        double scale = Math.Min(1.0, maxSide / (double)Math.Max(buffer.Width, buffer.Height));
+        var source = buffer.ToBitmapSource();
+        var scaled = new TransformedBitmap(source, new ScaleTransform(scale, scale));
+        scaled.Freeze();
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(scaled));
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        encoder.Save(fs);
+    }
+
     public static PixelBuffer DecodeImage(Stream stream)
     {
         var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);

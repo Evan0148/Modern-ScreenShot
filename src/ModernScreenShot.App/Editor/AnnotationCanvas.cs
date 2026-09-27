@@ -275,6 +275,18 @@ public sealed class AnnotationCanvas : FrameworkElement
         }
     }
 
+    /// <summary>Adopts a previously saved document (history re-edit) as the working document.</summary>
+    public void LoadDocument(AnnotationDocument doc)
+    {
+        _doc = doc;
+        _selected = null;
+        RecomputeMosaic();
+        Width = doc.ImageWidth;
+        Height = doc.ImageHeight;
+        InvalidateVisual();
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public static void MeasureTextItem(TextItem t)
     {
         var ft = AnnotationRenderer.BuildText(t);

@@ -26,6 +26,8 @@ public partial class EditorWindow : Window
     private readonly SettingsStore _settings;
     private readonly ClipboardService _clipboard;
     private readonly ImageExporter _exporter;
+    private readonly AnnotationDocument? _document;
+    private readonly Func<PixelBuffer, Window>? _pinFactory;
     private readonly Dictionary<EditorTool, RadioButton> _toolButtons = [];
     private readonly List<Button> _swatches = [];
     private AnnotationCanvas _canvas = null!;
@@ -48,20 +50,24 @@ public partial class EditorWindow : Window
         _textSection = null!, _mosaicSection = null!, _spotlightSection = null!, _magnifierSection = null!, _hintSection = null!;
     private TextBlock _hintText = null!;
     private Button _undoButton = null!, _redoButton = null!, _deleteButton = null!, _frontButton = null!, _backButton = null!;
-    private Button _effectsButton = null!;
+    private Button _effectsButton = null!, _openFolderButton = null!;
     private TextBlock _zoomLabel = null!, _statusLabel = null!;
     private EffectsPanel _effectsPanel = null!;
     private bool _effectsVisible;
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     private int _previewRunId;
+    private string? _lastSavedPath;
 
-    public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter)
+    public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter,
+        AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null)
     {
         InitializeComponent();
         _result = result;
         _settings = settings;
         _clipboard = clipboard;
         _exporter = exporter;
+        _document = document;
+        _pinFactory = pinFactory;
 
         var editor = settings.Current.Editor;
         var wa = SystemParameters.WorkArea;
@@ -105,6 +111,7 @@ public partial class EditorWindow : Window
         _canvas.Undo.Changed += (_, _) => RefreshUndoRedo();
 
         CanvasHost.Children.Add(_canvas);
+        if (_document is not null) _canvas.LoadDocument(_document);
         Loaded += (_, _) => FitZoom();
     }
 
@@ -503,6 +510,8 @@ public partial class EditorWindow : Window
         left.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
         _effectsButton = MakeToolButton(L.Get("Editor.Effects"), (_, _) => ToggleEffects());
         left.Children.Add(_effectsButton);
+        _openFolderButton = MakeToolButton(L.Get("Action.OpenFolder"), (_, _) => OpenLastFolder());
+        left.Children.Add(_openFolderButton);
         panel.Children.Add(left);
 
         ActionsHost.Child = panel;
@@ -526,6 +535,28 @@ public partial class EditorWindow : Window
     }
 
     private void SetStatus(string message) => _statusLabel.Text = message;
+
+    /// <summary>Reveals the last saved file in Explorer, or opens the default save folder.</summary>
+    private void OpenLastFolder()
+    {
+        try
+        {
+            if (_lastSavedPath is { } path && System.IO.File.Exists(path))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+                return;
+            }
+            string dir = string.IsNullOrWhiteSpace(_settings.Current.Output.SaveDirectory)
+                ? AppPaths.DefaultSaveDir
+                : _settings.Current.Output.SaveDirectory;
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Opening the folder failed", ex);
+        }
+    }
 
     // ---- zoom / pan ----
 
@@ -777,6 +808,7 @@ public partial class EditorWindow : Window
         try
         {
             var path = _exporter.QuickSave(RenderFlattened(), _canvas.Document.WindowTitle ?? _result.WindowTitle, _result.Mode.ToString());
+            _lastSavedPath = path;
             _exported = true;
             SetStatus(L.Get("Toast.Saved", path));
         }
@@ -795,6 +827,7 @@ public partial class EditorWindow : Window
                 _settings.Current.Output.Counter, _canvas.Document.WindowTitle ?? _result.WindowTitle, _result.Mode.ToString());
             var path = _exporter.SaveAs(RenderFlattened(), suggested);
             if (path is null) return;
+            _lastSavedPath = path;
             _exported = true;
             SetStatus(L.Get("Toast.Saved", path));
         }
@@ -807,8 +840,16 @@ public partial class EditorWindow : Window
 
     private void PinResult()
     {
-        // The pin window ships with T7; until then pinning copies the result.
-        Log.Info("Pin window is not implemented yet (T7); copying instead.");
+        if (_pinFactory is { } pin)
+        {
+            var win = pin(RenderFlattened());
+            win.Show();
+            win.Activate();
+            _exported = true;
+            SetStatus(L.Get("Toast.Pinned"));
+            return;
+        }
+        Log.Info("No pin factory registered; copying instead.");
         CopyResult();
     }
 
