@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Company>Modern-ScreenShot</Company>
+    <Product>Modern-ScreenShot</Product>
+    <Version>1.0.0</Version>
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+</Project>

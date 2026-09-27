@@ -1,0 +1,238 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <!-- App -->
+    <sys:String x:Key="App.Name">Modern ScreenShot</sys:String>
+    <sys:String x:Key="App.Tagline">A modern screenshot tool for Windows</sys:String>
+    <sys:String x:Key="App.Tooltip">Modern ScreenShot - click to capture a region</sys:String>
+    <sys:String x:Key="App.AlreadyRunning">Modern ScreenShot is already running.</sys:String>
+    <sys:String x:Key="App.Error">Something went wrong: {0}</sys:String>
+
+    <!-- Tray -->
+    <sys:String x:Key="Tray.Capture">Capture</sys:String>
+    <sys:String x:Key="Tray.Region">Region</sys:String>
+    <sys:String x:Key="Tray.Fullscreen">Full screen (current monitor)</sys:String>
+    <sys:String x:Key="Tray.AllMonitors">All monitors</sys:String>
+    <sys:String x:Key="Tray.ActiveWindow">Active window</sys:String>
+    <sys:String x:Key="Tray.WindowPick">Pick a window</sys:String>
+    <sys:String x:Key="Tray.Delay">Delayed capture</sys:String>
+    <sys:String x:Key="Tray.Delay3">In 3 seconds</sys:String>
+    <sys:String x:Key="Tray.Delay5">In 5 seconds</sys:String>
+    <sys:String x:Key="Tray.Delay10">In 10 seconds</sys:String>
+    <sys:String x:Key="Tray.LastRegion">Repeat last region</sys:String>
+    <sys:String x:Key="Tray.Scrolling">Scrolling capture</sys:String>
+    <sys:String x:Key="Tray.History">History</sys:String>
+    <sys:String x:Key="Tray.Settings">Settings</sys:String>
+    <sys:String x:Key="Tray.Language">Language</sys:String>
+    <sys:String x:Key="Tray.LangChinese">简体中文</sys:String>
+    <sys:String x:Key="Tray.LangEnglish">English</sys:String>
+    <sys:String x:Key="Tray.LangSystem">Follow system</sys:String>
+    <sys:String x:Key="Tray.Exit">Exit</sys:String>
+
+    <!-- Mode -->
+    <sys:String x:Key="Mode.Region">Region</sys:String>
+    <sys:String x:Key="Mode.Fullscreen">Full screen</sys:String>
+    <sys:String x:Key="Mode.AllMonitors">All monitors</sys:String>
+    <sys:String x:Key="Mode.ActiveWindow">Active window</sys:String>
+    <sys:String x:Key="Mode.WindowPick">Window</sys:String>
+    <sys:String x:Key="Mode.LastRegion">Last region</sys:String>
+    <sys:String x:Key="Mode.Scrolling">Scrolling</sys:String>
+    <sys:String x:Key="Mode.DelayRegion">Delayed region</sys:String>
+    <sys:String x:Key="Mode.History">Open history</sys:String>
+
+    <!-- Action -->
+    <sys:String x:Key="Action.Copy">Copy</sys:String>
+    <sys:String x:Key="Action.Save">Save</sys:String>
+    <sys:String x:Key="Action.SaveAs">Save as…</sys:String>
+    <sys:String x:Key="Action.Pin">Pin to screen</sys:String>
+    <sys:String x:Key="Action.Edit">Edit</sys:String>
+    <sys:String x:Key="Action.Cancel">Cancel</sys:String>
+    <sys:String x:Key="Action.Close">Close</sys:String>
+    <sys:String x:Key="Action.Delete">Delete</sys:String>
+    <sys:String x:Key="Action.OpenFolder">Open folder</sys:String>
+    <sys:String x:Key="Action.Undo">Undo</sys:String>
+    <sys:String x:Key="Action.Redo">Redo</sys:String>
+    <sys:String x:Key="Action.Apply">Apply</sys:String>
+    <sys:String x:Key="Action.Reset">Reset</sys:String>
+    <sys:String x:Key="Action.Ok">OK</sys:String>
+    <sys:String x:Key="Action.Open">Open</sys:String>
+    <sys:String x:Key="Action.BringToFront">Bring to front</sys:String>
+    <sys:String x:Key="Action.SendToBack">Send to back</sys:String>
+    <sys:String x:Key="Action.CopyColor">Copy color</sys:String>
+    <sys:String x:Key="Action.Stop">Stop</sys:String>
+
+    <!-- Toast -->
+    <sys:String x:Key="Toast.Copied">Copied to clipboard</sys:String>
+    <sys:String x:Key="Toast.Saved">Saved to {0}</sys:String>
+    <sys:String x:Key="Toast.HotkeyConflict">Hotkey {0} is already in use by another app</sys:String>
+    <sys:String x:Key="Toast.CaptureFailed">Capture failed. See the log for details.</sys:String>
+    <sys:String x:Key="Toast.NoLastRegion">No previous region yet. Capture a region first.</sys:String>
+    <sys:String x:Key="Toast.ElevatedWindow">This window runs as administrator and can't be captured directly.</sys:String>
+    <sys:String x:Key="Toast.ColorCopied">Color {0} copied</sys:String>
+    <sys:String x:Key="Toast.SaveFailed">Couldn't save the file: {0}</sys:String>
+    <sys:String x:Key="Toast.CopyFailed">Couldn't access the clipboard. Try again.</sys:String>
+    <sys:String x:Key="Toast.Pinned">Pinned to screen</sys:String>
+
+    <!-- Presets -->
+    <sys:String x:Key="Preset.Clean">Clean</sys:String>
+    <sys:String x:Key="Preset.SoftFloat">Soft float</sys:String>
+    <sys:String x:Key="Preset.Dramatic">Dramatic</sys:String>
+    <sys:String x:Key="Preset.Mirror">Mirror</sys:String>
+    <sys:String x:Key="Preset.GradientCard">Gradient card</sys:String>
+    <sys:String x:Key="Preset.None">None</sys:String>
+    <sys:String x:Key="Preset.Custom">Custom</sys:String>
+
+    <!-- Tools -->
+    <sys:String x:Key="Tool.Select">Select (V)</sys:String>
+    <sys:String x:Key="Tool.Rect">Rectangle (R)</sys:String>
+    <sys:String x:Key="Tool.Ellipse">Ellipse (E)</sys:String>
+    <sys:String x:Key="Tool.Line">Line (L)</sys:String>
+    <sys:String x:Key="Tool.Arrow">Arrow (A)</sys:String>
+    <sys:String x:Key="Tool.Pen">Pen (P)</sys:String>
+    <sys:String x:Key="Tool.Text">Text (T)</sys:String>
+    <sys:String x:Key="Tool.Step">Step number (N)</sys:String>
+    <sys:String x:Key="Tool.Highlighter">Highlighter (H)</sys:String>
+    <sys:String x:Key="Tool.Mosaic">Mosaic (M)</sys:String>
+    <sys:String x:Key="Tool.Blur">Blur (B)</sys:String>
+    <sys:String x:Key="Tool.Spotlight">Spotlight (S)</sys:String>
+    <sys:String x:Key="Tool.Magnifier">Magnifier (G)</sys:String>
+    <sys:String x:Key="Tool.Crop">Crop (C)</sys:String>
+
+    <!-- Properties -->
+    <sys:String x:Key="Prop.Color">Color</sys:String>
+    <sys:String x:Key="Prop.Thickness">Thickness</sys:String>
+    <sys:String x:Key="Prop.Fill">Fill</sys:String>
+    <sys:String x:Key="Prop.FontSize">Font size</sys:String>
+    <sys:String x:Key="Prop.Opacity">Opacity</sys:String>
+    <sys:String x:Key="Prop.Strength">Strength</sys:String>
+    <sys:String x:Key="Prop.Dashed">Dashed</sys:String>
+    <sys:String x:Key="Prop.Bold">Bold</sys:String>
+    <sys:String x:Key="Prop.Zoom">Zoom</sys:String>
+    <sys:String x:Key="Prop.CustomColor">Custom color…</sys:String>
+    <sys:String x:Key="Prop.Hex">Hex</sys:String>
+    <sys:String x:Key="Prop.Alpha">Alpha</sys:String>
+    <sys:String x:Key="Prop.MosaicMode">Mode</sys:String>
+    <sys:String x:Key="Prop.Pixelate">Pixelate</sys:String>
+    <sys:String x:Key="Prop.BlurMode">Blur</sys:String>
+    <sys:String x:Key="Prop.Dim">Dim</sys:String>
+    <sys:String x:Key="Prop.Shape">Shape</sys:String>
+
+    <!-- Effects -->
+    <sys:String x:Key="Effects.Title">Effects</sys:String>
+    <sys:String x:Key="Effects.Enabled">Apply effects on export</sys:String>
+    <sys:String x:Key="Effects.Shadow">Shadow</sys:String>
+    <sys:String x:Key="Effects.Blur">Blur</sys:String>
+    <sys:String x:Key="Effects.Spread">Spread</sys:String>
+    <sys:String x:Key="Effects.Color">Color</sys:String>
+    <sys:String x:Key="Effects.Angle">Angle</sys:String>
+    <sys:String x:Key="Effects.Distance">Distance</sys:String>
+    <sys:String x:Key="Effects.Opacity">Opacity</sys:String>
+    <sys:String x:Key="Effects.Reflection">Reflection</sys:String>
+    <sys:String x:Key="Effects.Height">Height</sys:String>
+    <sys:String x:Key="Effects.StartOpacity">Start opacity</sys:String>
+    <sys:String x:Key="Effects.EndOpacity">End opacity</sys:String>
+    <sys:String x:Key="Effects.Gap">Gap</sys:String>
+    <sys:String x:Key="Effects.Frame">Frame</sys:String>
+    <sys:String x:Key="Effects.CornerRadius">Corner radius</sys:String>
+    <sys:String x:Key="Effects.Padding">Padding</sys:String>
+    <sys:String x:Key="Effects.Background">Background</sys:String>
+    <sys:String x:Key="Effects.BgNone">Transparent</sys:String>
+    <sys:String x:Key="Effects.BgSolid">Solid</sys:String>
+    <sys:String x:Key="Effects.BgGradient">Gradient</sys:String>
+    <sys:String x:Key="Effects.GradientStart">Start color</sys:String>
+    <sys:String x:Key="Effects.GradientEnd">End color</sys:String>
+    <sys:String x:Key="Effects.GradientAngle">Gradient angle</sys:String>
+    <sys:String x:Key="Effects.Border">Inner border</sys:String>
+    <sys:String x:Key="Effects.Preset">Preset</sys:String>
+    <sys:String x:Key="Effects.SavePreset">Save as preset</sys:String>
+    <sys:String x:Key="Effects.DeletePreset">Delete preset</sys:String>
+    <sys:String x:Key="Effects.PresetName">Preset name</sys:String>
+
+    <!-- Settings -->
+    <sys:String x:Key="Settings.Title">Settings</sys:String>
+    <sys:String x:Key="Settings.General">General</sys:String>
+    <sys:String x:Key="Settings.Hotkeys">Hotkeys</sys:String>
+    <sys:String x:Key="Settings.Capture">Capture</sys:String>
+    <sys:String x:Key="Settings.Output">Output</sys:String>
+    <sys:String x:Key="Settings.Effects">Effects</sys:String>
+    <sys:String x:Key="Settings.About">About</sys:String>
+    <sys:String x:Key="Settings.Language">Language</sys:String>
+    <sys:String x:Key="Settings.LangSystem">Follow system</sys:String>
+    <sys:String x:Key="Settings.Theme">Theme</sys:String>
+    <sys:String x:Key="Settings.ThemeSystem">Follow system</sys:String>
+    <sys:String x:Key="Settings.ThemeLight">Light</sys:String>
+    <sys:String x:Key="Settings.ThemeDark">Dark</sys:String>
+    <sys:String x:Key="Settings.StartWithWindows">Start with Windows</sys:String>
+    <sys:String x:Key="Settings.SaveDir">Save folder</sys:String>
+    <sys:String x:Key="Settings.Browse">Browse…</sys:String>
+    <sys:String x:Key="Settings.Format">Image format</sys:String>
+    <sys:String x:Key="Settings.JpgQuality">JPG quality</sys:String>
+    <sys:String x:Key="Settings.WebPQuality">WebP quality</sys:String>
+    <sys:String x:Key="Settings.FileTemplate">File name template</sys:String>
+    <sys:String x:Key="Settings.TemplateHelp">Tokens: {yyyy} {MM} {dd} {HH} {mm} {ss} {fff} {counter} {window} {mode}</sys:String>
+    <sys:String x:Key="Settings.AutoSave">Save automatically after capture</sys:String>
+    <sys:String x:Key="Settings.AutoCopy">Copy to clipboard automatically</sys:String>
+    <sys:String x:Key="Settings.AfterRegion">After region / window capture</sys:String>
+    <sys:String x:Key="Settings.AfterOther">After other captures</sys:String>
+    <sys:String x:Key="Settings.After.ShowToolbar">Show quick toolbar</sys:String>
+    <sys:String x:Key="Settings.After.OpenEditor">Open editor</sys:String>
+    <sys:String x:Key="Settings.After.CopyOnly">Copy only</sys:String>
+    <sys:String x:Key="Settings.After.SaveOnly">Save only</sys:String>
+    <sys:String x:Key="Settings.After.Pin">Pin to screen</sys:String>
+    <sys:String x:Key="Settings.DelaySeconds">Delay (seconds)</sys:String>
+    <sys:String x:Key="Settings.ShowMagnifier">Show magnifier while selecting</sys:String>
+    <sys:String x:Key="Settings.CaptureCursor">Include mouse cursor</sys:String>
+    <sys:String x:Key="Settings.TransparentCorners">Transparent rounded corners for window captures</sys:String>
+    <sys:String x:Key="Settings.HistoryMax">History size (items)</sys:String>
+    <sys:String x:Key="Settings.PressKeys">Press a key combination…</sys:String>
+    <sys:String x:Key="Settings.Clear">Clear</sys:String>
+    <sys:String x:Key="Settings.Conflict">Already in use</sys:String>
+    <sys:String x:Key="Settings.Version">Version {0}</sys:String>
+    <sys:String x:Key="Settings.SettingsPath">Settings file: {0}</sys:String>
+    <sys:String x:Key="Settings.OpenLog">Open log folder</sys:String>
+    <sys:String x:Key="Settings.ApplyEffects">Apply effects when exporting from the editor</sys:String>
+
+    <!-- History -->
+    <sys:String x:Key="History.Title">History</sys:String>
+    <sys:String x:Key="History.Empty">No screenshots yet</sys:String>
+    <sys:String x:Key="History.ClearAll">Clear all</sys:String>
+    <sys:String x:Key="History.ConfirmClear">Delete all history items? This can't be undone.</sys:String>
+    <sys:String x:Key="History.Count">{0} items</sys:String>
+
+    <!-- Overlay -->
+    <sys:String x:Key="Overlay.Hint">Drag to select · Click a window to capture it · Esc to cancel</sys:String>
+    <sys:String x:Key="Overlay.WindowHint">Click a window to capture it · Esc to cancel</sys:String>
+    <sys:String x:Key="Overlay.Size">{0} × {1}</sys:String>
+    <sys:String x:Key="Overlay.Position">X {0}  Y {1}</sys:String>
+    <sys:String x:Key="Overlay.CopyColorHint">C: copy color</sys:String>
+
+    <!-- Scrolling -->
+    <sys:String x:Key="Scroll.Stop">Stop</sys:String>
+    <sys:String x:Key="Scroll.Hint">Scrolling… press Esc or click Stop to finish</sys:String>
+    <sys:String x:Key="Scroll.Scrolling">Capturing {0} px</sys:String>
+    <sys:String x:Key="Scroll.Manual">Auto-scroll isn't working here. Scroll manually, then click Stop.</sys:String>
+
+    <!-- Countdown -->
+    <sys:String x:Key="Countdown.Title">Capturing in</sys:String>
+    <sys:String x:Key="Countdown.Seconds">{0}</sys:String>
+    <sys:String x:Key="Countdown.Cancel">Press Esc to cancel</sys:String>
+
+    <!-- Editor -->
+    <sys:String x:Key="Editor.Title">Editor - Modern ScreenShot</sys:String>
+    <sys:String x:Key="Editor.Zoom">Zoom</sys:String>
+    <sys:String x:Key="Editor.Fit">Fit to window</sys:String>
+    <sys:String x:Key="Editor.ActualSize">Actual size</sys:String>
+    <sys:String x:Key="Editor.Effects">Effects</sys:String>
+    <sys:String x:Key="Editor.Properties">Properties</sys:String>
+    <sys:String x:Key="Editor.UnsavedTitle">Discard changes?</sys:String>
+    <sys:String x:Key="Editor.UnsavedBody">This screenshot hasn't been copied or saved. It stays in History.</sys:String>
+
+    <!-- First run -->
+    <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>
+    <sys:String x:Key="FirstRun.Body">Press Ctrl+Shift+A to capture a region. Right-click the tray icon for more modes.</sys:String>
+
+    <!-- Common -->
+    <sys:String x:Key="Common.Yes">Yes</sys:String>
+    <sys:String x:Key="Common.No">No</sys:String>
+    <sys:String x:Key="Common.None">None</sys:String>
+</ResourceDictionary>

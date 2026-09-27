@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <RootNamespace>ModernScreenShot.App</RootNamespace>
+    <AssemblyName>ModernScreenShot.App</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ModernScreenShot.Core\ModernScreenShot.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+  </ItemGroup>
+
+</Project>

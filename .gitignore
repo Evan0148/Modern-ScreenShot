@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+.omo/drafts/
+publish/
+tools/Harness/out/
+TestResults/
