@@ -108,6 +108,18 @@ public struct INPUT
     public static int Size => Marshal.SizeOf<INPUT>();
 }
 
+[StructLayout(LayoutKind.Sequential)]
+public struct KBDLLHOOKSTRUCT
+{
+    public uint vkCode;
+    public uint scanCode;
+    public uint flags;
+    public uint time;
+    public IntPtr dwExtraInfo;
+}
+
+public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
 public static class NativeMethods
 {
     // ---- constants ----
@@ -144,6 +156,10 @@ public static class NativeMethods
     public const uint INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
     public const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_WHEEL = 0x0800, MOUSEEVENTF_ABSOLUTE = 0x8000, MOUSEEVENTF_VIRTUALDESK = 0x4000;
     public const int WHEEL_DELTA = 120;
+
+    public const int WH_KEYBOARD_LL = 13;
+    public const int WM_KEYDOWN = 0x0100, WM_SYSKEYDOWN = 0x0104;
+    public const int VK_ESCAPE = 0x1B;
 
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     public const int DWMWA_CLOAKED = 14;
@@ -183,6 +199,10 @@ public static class NativeMethods
     public static extern bool DrawIconEx(IntPtr hdc, int x, int y, IntPtr hIcon, int cx, int cy, uint step, IntPtr hbrFlicker, int flags);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetIconInfo(IntPtr hIcon, out ICONINFO info);
     [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint nInputs, [In] INPUT[] inputs, int cbSize);
+    [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc proc, IntPtr hMod, uint threadId);
+    [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string? moduleName);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]

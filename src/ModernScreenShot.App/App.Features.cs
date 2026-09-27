@@ -35,6 +35,7 @@ public partial class App
 
     partial void RegisterFeatureServices(IServiceCollection services)
     {
+        services.AddSingleton<ScrollingCaptureService>();
         services.AddSingleton<CaptureService>();
         services.AddSingleton<ClipboardService>();
         services.AddSingleton<ImageExporter>();
@@ -79,6 +80,7 @@ public partial class App
 
     partial void OnSmokeTest(IServiceProvider services)
     {
+        _ = services.GetRequiredService<ScrollingCaptureService>();
         _ = services.GetRequiredService<CaptureService>();
         _ = services.GetRequiredService<ClipboardService>();
         _ = services.GetRequiredService<ImageExporter>();

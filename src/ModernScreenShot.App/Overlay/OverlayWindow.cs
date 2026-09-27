@@ -251,10 +251,12 @@ internal sealed class OverlayWindow : Window
     }
 
     /// <summary>Positions the toolbar relative to the selection; only the monitor holding the
-    /// selection's bottom-right corner shows it.</summary>
+    /// selection's bottom-right corner shows it. Hidden entirely when the session auto-confirms
+    /// (scrolling capture selects a region only).</summary>
     internal void UpdateToolbar()
     {
-        if (_session.Selection is not { } sel
+        if (_session.AutoConfirmOnSelect
+            || _session.Selection is not { } sel
             || _session.State != OverlayState.Selected
             || _session.Mode != CaptureMode.Region
             || !Monitor.Bounds.Contains(sel.Right - 1, sel.Bottom - 1))

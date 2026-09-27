@@ -14,15 +14,17 @@ public sealed class CaptureService
     private readonly WindowCapturer _windowCapturer;
     private readonly WindowEnumerator _windows;
     private readonly SettingsStore _settings;
+    private readonly ScrollingCaptureService _scrolling;
 
     public CaptureService(MonitorService monitors, ScreenCapturer screen, WindowCapturer windowCapturer,
-        WindowEnumerator windows, SettingsStore settings)
+        WindowEnumerator windows, SettingsStore settings, ScrollingCaptureService scrolling)
     {
         _monitors = monitors;
         _screen = screen;
         _windowCapturer = windowCapturer;
         _windows = windows;
         _settings = settings;
+        _scrolling = scrolling;
     }
 
     /// <summary>
@@ -50,7 +52,7 @@ public sealed class CaptureService
                 CaptureMode.AllMonitors => CaptureScreen(_monitors.GetVirtualScreen(), CaptureMode.AllMonitors),
                 CaptureMode.ActiveWindow => CaptureActiveWindow(),
                 CaptureMode.LastRegion => CaptureLastRegion(),
-                CaptureMode.Scrolling => null,
+                CaptureMode.Scrolling => CaptureScrolling(),
                 _ => null,
             };
         }
@@ -112,6 +114,37 @@ public sealed class CaptureService
             SourceRect = outcome.Region,
             RequestedAction = MapIntent(outcome.Intent),
         };
+    }
+
+    /// <summary>
+    /// Scrolling (long) capture: first a region is picked with the auto-confirming overlay, then the
+    /// region is scrolled and stitched live by <see cref="ScrollingCaptureService"/>.
+    /// </summary>
+    private CaptureResult? CaptureScrolling()
+    {
+        var region = SelectScrollingRegion();
+        if (region is not { } selected || selected.IsEmpty)
+        {
+            Log.Info("Scrolling capture cancelled: no region selected.");
+            return null;
+        }
+        return _scrolling.Run(selected);
+    }
+
+    /// <summary>Shows the region overlay in auto-confirm mode: dragging a region (or clicking a
+    /// window) confirms immediately with Edit intent; the toolbar is hidden; Esc cancels.</summary>
+    private PixelRect? SelectScrollingRegion()
+    {
+        var vs = _monitors.GetVirtualScreen();
+        if (vs.IsEmpty) return null;
+        // Freeze BEFORE any overlay is visible so the frozen slice can never contain the overlay itself.
+        var frozen = _screen.Capture(vs, includeCursor: false);
+        _windows.Refresh(); // snapshot before overlay windows exist
+        var session = new OverlaySession(CaptureMode.Region, frozen, vs, frozen.ToBitmapSource(), _monitors,
+            _windows, _settings.Current.Capture.ShowMagnifier, autoConfirmOnSelect: true);
+        var outcome = session.Show();
+        if (outcome is null || !outcome.Confirmed || outcome.Region.IsEmpty) return null;
+        return outcome.Region;
     }
 
     private CaptureResult CaptureScreen(PixelRect rect, CaptureMode mode)

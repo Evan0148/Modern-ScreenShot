@@ -64,6 +64,7 @@ internal sealed class OverlaySession
     private bool _cursorValid;
     private OverlayOutcome? _outcome;
     private bool _ended;
+    private readonly bool _autoConfirm;
     private DateTime _colorFlashUntil = DateTime.MinValue;
 
     internal PixelBuffer Frozen { get; }
@@ -71,6 +72,8 @@ internal sealed class OverlaySession
     internal BitmapSource FrozenSource { get; }
     internal CaptureMode Mode { get; }
     internal bool MagnifierEnabled { get; }
+    /// <summary>When true a finished selection immediately confirms as Edit (scrolling capture); the toolbar is hidden.</summary>
+    internal bool AutoConfirmOnSelect => _autoConfirm;
 
     internal OverlayState State => _state;
     internal PixelRect? Selection => _selection.IsEmpty ? null : _selection;
@@ -80,7 +83,7 @@ internal sealed class OverlaySession
     internal bool ColorFlashActive => DateTime.UtcNow < _colorFlashUntil;
 
     public OverlaySession(CaptureMode mode, PixelBuffer frozen, PixelRect virtualScreen, BitmapSource frozenSource,
-        MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled)
+        MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled, bool autoConfirmOnSelect = false)
     {
         Mode = mode is CaptureMode.Region or CaptureMode.WindowPick ? mode : CaptureMode.Region;
         Frozen = frozen;
@@ -89,6 +92,7 @@ internal sealed class OverlaySession
         _monitors = monitors;
         _windowEnum = windowEnum;
         MagnifierEnabled = magnifierEnabled;
+        _autoConfirm = autoConfirmOnSelect;
     }
 
     /// <summary>Shows one overlay per monitor and pumps the dispatcher until the session ends.</summary>
@@ -190,11 +194,21 @@ internal sealed class OverlaySession
                 _selection = default;
                 if (Mode == CaptureMode.Region) SelectWindowUnderCursor();
                 _state = _selection.IsEmpty ? OverlayState.Idle : OverlayState.Selected;
+                if (_autoConfirm && !_selection.IsEmpty)
+                {
+                    Confirm(OverlayIntent.Edit);
+                    return;
+                }
             }
             else
             {
                 _selection = ClampToVirtual(_selection);
                 _state = OverlayState.Selected;
+                if (_autoConfirm)
+                {
+                    Confirm(OverlayIntent.Edit);
+                    return;
+                }
             }
         }
         else if (_state == OverlayState.Idle && Mode == CaptureMode.WindowPick)
