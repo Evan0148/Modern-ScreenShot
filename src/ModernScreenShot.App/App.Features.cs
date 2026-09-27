@@ -75,6 +75,8 @@ public partial class App
         }
 
         if (ParseCaptureArg(args) is { } mode) RunCapture(mode);
+        // Hidden diagnostic switch: opens the settings window on startup (used for UI verification runs).
+        if (StartupArgs.Any(a => string.Equals(a, "--show-settings", StringComparison.OrdinalIgnoreCase))) OpenSettings();
         if (!TrayStarted && EditorWindows.Count == 0) Shutdown(0);
     }
 

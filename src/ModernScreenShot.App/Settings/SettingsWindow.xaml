@@ -4,11 +4,13 @@
         Title="{DynamicResource Settings.Title}"
         Width="640" Height="660"
         MinWidth="580" MinHeight="560"
+        Background="{DynamicResource ApplicationBackgroundBrush}"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <Style x:Key="FormLabel" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,8,20,8"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
         </Style>
         <Style x:Key="FormField" TargetType="Control">
             <Setter Property="Margin" Value="0,4,0,4"/>

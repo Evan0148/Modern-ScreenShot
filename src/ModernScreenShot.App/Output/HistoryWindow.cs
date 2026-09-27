@@ -44,6 +44,8 @@ public sealed class HistoryWindow : Window
         MinWidth = 620;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Background = System.Windows.Application.Current.TryFindResource("ApplicationBackgroundBrush") as Brush
+                     ?? Brushes.White;
 
         var toolbar = new DockPanel();
         var left = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8) };

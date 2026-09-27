@@ -10,6 +10,10 @@
                 <ui:ControlsDictionary />
                 <!-- The localized string dictionary is merged at runtime by LocalizationService. -->
             </ResourceDictionary.MergedDictionaries>
+            <!-- Custom TextBlocks must follow the WPF-UI theme, otherwise they stay black on dark backgrounds. -->
+            <Style TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
