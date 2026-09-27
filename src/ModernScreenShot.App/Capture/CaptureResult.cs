@@ -10,5 +10,7 @@ public sealed class CaptureResult
     public string? WindowTitle { get; init; }
     /// <summary>Source rectangle in physical virtual-screen pixels.</summary>
     public PixelRect SourceRect { get; init; }
+    /// <summary>Action chosen in the overlay toolbar; null means use the settings default.</summary>
+    public AfterCaptureAction? RequestedAction { get; init; }
     public DateTime Time { get; init; } = DateTime.Now;
 }
