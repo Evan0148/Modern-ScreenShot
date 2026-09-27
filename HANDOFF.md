@@ -1,3 +1,5 @@
+> **状态更新（2026-09-27）：T4–T10 已全部完成并逐任务提交（d9cc2b6 → 797d0dd → f1167e0 → db03609 → ce53b13 → 2002f5a + T10 收尾提交）。README.md / KNOWN_ISSUES.md / publish\ 均已就绪，等待用户真机测试。以下为过程交接记录。**
+
 # HANDOFF — Modern-ScreenShot（交接文档）
 
 > 给下一个 Agent：读完本文即可继续开发。计划全稿在 `.omo/plans/modern-screenshot.md`（必读，含全局规则、目录规划、任务拆分）。本文记录**已完成内容、验证方法、关键接口、剩余任务**。

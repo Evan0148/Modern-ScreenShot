@@ -1,8 +1,8 @@
-bin/
-obj/
-.vs/
 *.user
 .omo/drafts/
+.vs/
+TestResults/
+bin/
+obj/
 publish/
 tools/Harness/out/
-TestResults/
