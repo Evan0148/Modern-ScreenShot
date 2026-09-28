@@ -130,11 +130,16 @@
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
                                    Text="{DynamicResource Settings.SaveDir}"/>
-                        <DockPanel Grid.Row="0" Grid.Column="1" Margin="0,4,0,4">
-                            <Button DockPanel.Dock="Right" Content="{DynamicResource Settings.Browse}"
-                                    MinWidth="80" Margin="8,0,0,0" Click="OnBrowseSaveDir"/>
-                            <TextBox x:Name="SaveDirBox" VerticalContentAlignment="Center"/>
-                        </DockPanel>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,4,0,4">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="{DynamicResource Settings.Browse}"
+                                        MinWidth="80" Margin="8,0,0,0" Click="OnBrowseSaveDir"/>
+                                <TextBox x:Name="SaveDirBox" VerticalContentAlignment="Center"/>
+                            </DockPanel>
+                            <TextBlock x:Name="SaveDirHint" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
+                        </StackPanel>
                         <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"
                                    Text="{DynamicResource Settings.Format}"/>
                         <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FormatBox" Width="160"

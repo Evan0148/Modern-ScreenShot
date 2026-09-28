@@ -151,6 +151,11 @@ public partial class SettingsWindow : Window
     {
         var output = _settings.Current.Output;
         SaveDirBox.Text = output.SaveDirectory;
+        // An empty folder means the default; say which one instead of leaving the box silent.
+        SaveDirHint.Text = string.Format(L.Get("Settings.SaveDirDefault"), AppPaths.DefaultSaveDir);
+        SaveDirHint.Visibility = string.IsNullOrWhiteSpace(output.SaveDirectory) ? Visibility.Visible : Visibility.Collapsed;
+        SaveDirBox.TextChanged += (_, _) =>
+            SaveDirHint.Visibility = string.IsNullOrWhiteSpace(SaveDirBox.Text) ? Visibility.Visible : Visibility.Collapsed;
         FormatBox.SelectedIndex = (int)output.Format;
         JpgQualitySlider.Value = output.JpgQuality;
         WebPQualitySlider.Value = output.WebPQuality;

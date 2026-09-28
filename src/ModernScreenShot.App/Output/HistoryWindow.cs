@@ -96,14 +96,36 @@ public sealed class HistoryWindow : Window
 
     private FrameworkElement MakeItem(HistoryEntry entry)
     {
-        var image = new Image { Width = 168, Stretch = Stretch.Uniform, Margin = new Thickness(4) };
+        // Fixed thumbnail viewport: every card gets the same geometry regardless of aspect ratio,
+        // so grid rows stop stretching to portrait captures; Uniform letterboxes inside the box.
+        var thumbHost = new Border
+        {
+            Height = 112,
+            Margin = new Thickness(4, 4, 4, 0),
+            CornerRadius = new CornerRadius(4),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
         try
         {
-            image.Source = BitmapInterop.LoadPng(entry.ThumbnailPath).ToBitmapSource();
+            thumbHost.Child = new Image
+            {
+                Source = BitmapInterop.LoadPng(entry.ThumbnailPath).ToBitmapSource(),
+                Stretch = Stretch.Uniform,
+                Margin = new Thickness(2),
+            };
         }
         catch (Exception ex)
         {
             Log.Warn($"Thumbnail missing for {entry.Id}: {ex.Message}");
+            thumbHost.Child = new TextBlock
+            {
+                Text = "\uE8B9", // Segoe MDL2 Photo glyph: a deliberate placeholder, not a blank card
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 30,
+                Foreground = MakeSecondaryBrush(),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
         }
 
         var text = new TextBlock
@@ -119,16 +141,20 @@ public sealed class HistoryWindow : Window
 
         var card = new Border
         {
-            Child = new StackPanel { Children = { image, text } },
+            Child = new StackPanel { Children = { thumbHost, text } },
             // Translucent gray reads on both light and dark backgrounds (a fixed dark gray
             // disappeared on the light theme).
             BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0x80, 0x80, 0x80)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Margin = new Thickness(4),
-            Width = 176,
+            Width = 184,
             Cursor = Cursors.Hand,
         };
+        // Subtle hover feedback on both themes.
+        var hoverBrush = new SolidColorBrush(Color.FromArgb(0x14, 0x80, 0x80, 0x80));
+        card.MouseEnter += (_, _) => card.Background = hoverBrush;
+        card.MouseLeave += (_, _) => card.Background = null;
 
         var menu = new ContextMenu();
         menu.Items.Add(MenuItem(L.Get("Action.Open"), (_, _) => OpenInEditor(entry)));

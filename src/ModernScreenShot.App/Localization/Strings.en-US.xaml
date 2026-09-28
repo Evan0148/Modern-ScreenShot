@@ -166,6 +166,7 @@
     <sys:String x:Key="Settings.StartWithWindows">Start with Windows</sys:String>
     <sys:String x:Key="Settings.SaveDir">Save folder</sys:String>
     <sys:String x:Key="Settings.Browse">Browse…</sys:String>
+    <sys:String x:Key="Settings.SaveDirDefault">Leave empty to save to the default folder: {0}</sys:String>
     <sys:String x:Key="Settings.Format">Image format</sys:String>
     <sys:String x:Key="Settings.JpgQuality">JPG quality</sys:String>
     <sys:String x:Key="Settings.WebPQuality">WebP quality</sys:String>

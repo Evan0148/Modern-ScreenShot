@@ -166,6 +166,7 @@
     <sys:String x:Key="Settings.StartWithWindows">开机自动启动</sys:String>
     <sys:String x:Key="Settings.SaveDir">保存位置</sys:String>
     <sys:String x:Key="Settings.Browse">浏览…</sys:String>
+    <sys:String x:Key="Settings.SaveDirDefault">留空时保存到默认目录：{0}</sys:String>
     <sys:String x:Key="Settings.Format">图片格式</sys:String>
     <sys:String x:Key="Settings.JpgQuality">JPG 质量</sys:String>
     <sys:String x:Key="Settings.WebPQuality">WebP 质量</sys:String>
