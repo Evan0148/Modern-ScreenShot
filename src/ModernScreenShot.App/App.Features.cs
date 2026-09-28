@@ -404,7 +404,8 @@ public partial class App
         Log.Info("History window opened.");
     }
 
-    /// <summary>Synthetic capture for the --show-editor diagnostic switch (UI verification without a real capture).</summary>
+    /// <summary>Synthetic capture for the --show-editor diagnostic switch (UI verification without a real capture).
+    /// Passes a document, matching the real post-capture flow (DispatchCaptureResult always opens with one).</summary>
     private void ShowDiagnosticEditor()
     {
         const int w = 960, h = 600;
@@ -421,13 +422,20 @@ public partial class App
                 row[i + 3] = 255;
             }
         }
+        var doc = new AnnotationDocument
+        {
+            ImageWidth = w,
+            ImageHeight = h,
+            WindowTitle = "Diagnostic",
+            CaptureMode = CaptureMode.Region.ToString(),
+        };
         OpenEditor(new CaptureResult
         {
             Image = image,
             Mode = CaptureMode.Region,
             WindowTitle = "Diagnostic",
             SourceRect = new PixelRect(0, 0, w, h),
-        });
+        }, doc);
     }
 
     private void OnEditorClosed(object? sender, EventArgs e)    {

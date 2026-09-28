@@ -432,6 +432,10 @@ public partial class EditorWindow : Window
     /// <summary>Shows the sections that apply to the active tool (or the selected item) and syncs control values.</summary>
     private void UpdatePropertyPanel()
     {
+        // The canvas is built before the property sections; a SelectionChanged fired during
+        // construction (LoadDocument of an adopted document) must not touch the null fields.
+        // The ctor's own call runs after _ready = true, so the initial panel state is still set.
+        if (!_ready) return;
         _syncingPanel = true;
         var tool = _canvas.Tool;
         var sel = _canvas.Selected;
