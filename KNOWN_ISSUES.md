@@ -1,6 +1,21 @@
 # KNOWN ISSUES / 备忘
 按任务顺序记录无人值守期间自行决定的事项与未验证点。用户手工测试时可对照检查。
 
+## 功能完善（2026-09-28，1f62468 / a6c2ba0 / bd82ea9 / 515b10a）
+
+本轮四项，均通过客观门禁（构建 0/0、harness 31/31、i18n 206 键齐平、--smoke 0 含 publish 产物）。
+
+- **每工具二级选项条 + 橡皮擦（1f62468）**：overlay 主工具条下方按当前工具浮出选项行（粗细/填充/虚线/加粗预设、字号、序号半径、马赛克模式与强度、调色板）；选择/橡皮擦不显示。橡皮擦（`X`）在 overlay 与编辑器均可用，拖过标注即删、一次拖动一步撤销。选项写入 `EditorSettings`（新增 FillShape/DashedLine/FontBold/StepRadius/MosaicPixelate 字段，向后兼容默认值，StepRadius 在 Normalize 钳制），确认/关闭时保存，"记住上次样式"。**订正**：下方"Snipaste 式内联标注 v1 限制"里的"无橡皮擦/单项删除"已不再成立。
+- **仿 macOS 窗口阴影（a6c2ba0）**：新增捕获设置 `MacStyleWindowShadow`（默认关）。开启后「当前窗口 / 选择窗口」强制透明圆角并附 SoftFloat 效果预设（透明四周 + 柔和投影）；直接复制/保存/贴图经 `ImageWithAnnotations` 里的 `EffectPipeline.Compose` 烘焙阴影（受新 `CaptureResult.BakeEffectsOnDirectOutput` 标志控制，普通截图不受影响、也不污染用户的 `store.Current.Effects` 偏好）。
+- **仿 macOS 浮动缩略图（bd82ea9）**：新增截图后动作 `FloatingThumbnail`（枚举末尾追加，区域/其他两处 ComboBox 各加第 6 项）。截图后右下角滑入小卡片，点击进编辑器、拖动移位、右键复制/保存/贴图/关闭、悬停暂停约 6 秒自动消失倒计时，超时按 AutoSave/AutoCopy 落地。`FloatingThumbnailWindow` 是纯视图（终端动作全为注入回调），加入 `EditorWindows` 复用存活机制，Closed 里解绑全部事件。
+- **主题 UI 缺陷修复（515b10a）**：用户报"跟随系统下快捷键框无法正常显示"。**根因**：`HotkeyRecorder : Button`，WPF 隐式样式按精确运行时类型解析，Button 子类拿不到 WPF-UI 主题化 Button 样式、回退到 OS 默认浅灰 Aero 底，在暗色设置窗口上撞色不可读。**修复**：构造函数 `SetResourceReference(StyleProperty, typeof(Button))` 拉入主题样式并随运行时切主题实时更新。用应用内 RenderTargetBitmap 做过对比度断言（禁用修复→暗色下浅灰、67 光斑=FAIL；恢复→暗色 38、0 光斑=PASS）。
+
+**仍需真机手测**（本次开发环境为锁屏，键盘无法送达 overlay，交互类断言被阻塞；鼠标注入 + PrintWindow + 应用内渲染验证均可用）：
+- overlay 各工具选项条的显隐/换行、橡皮擦擦除、选项持久化；
+- 窗口 Mac 阴影的真机透明+投影观感、透明 PNG 进剪贴板在各消费端的表现（DIBV5 alpha 兼容性，见 T7 节）；
+- 浮动缩略图的多显示器/混合 DPI 右下角定位、hover 暂停、超时落地；
+- 三主题（Light/Dark/System）下设置窗口整体观感（快捷键框修复已数值验证）。
+
 ## 遗留自 T2/T3
 
 - **WebP 导出未验证**：SkiaSharp WebP 编码计划在 T7 第一次实际导出时验证。
