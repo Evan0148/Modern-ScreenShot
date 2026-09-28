@@ -128,6 +128,30 @@ public sealed class CaptureService
             Log.Warn("Window capture failed after picking; falling back to the frozen region crop.");
         }
 
+        // macOS-style shadow also covers the habitual region flow: when the selection coincides
+        // exactly with a window (click-snapped or hand-drawn), capture that window via PrintWindow
+        // and bake the shadow instead of returning the plain screen crop.
+        if (mode == CaptureMode.Region && outcome.WindowHandle == IntPtr.Zero
+            && outcome.SnappedWindow is { } snapped && _settings.Current.Capture.MacStyleWindowShadow)
+        {
+            bool macCorners = _settings.Current.Capture.WindowTransparentCorners || _settings.Current.Capture.MacStyleWindowShadow;
+            var winImage = _windowCapturer.CaptureWindow(snapped.Handle, macCorners, out var title);
+            if (winImage is not null)
+            {
+                var snappedDoc = ApplyMacStyleIfEnabled(doc, winImage, CaptureMode.Region, title, out var baked);
+                return new CaptureResult
+                {
+                    Image = baked,
+                    Mode = CaptureMode.Region,
+                    WindowTitle = title,
+                    SourceRect = outcome.Region,
+                    RequestedAction = MapIntent(outcome.Intent),
+                    AnnotationDocument = snappedDoc,
+                };
+            }
+            Log.Warn("Capturing the snapped window failed; falling back to the frozen region crop.");
+        }
+
         if (outcome.Region.IsEmpty) return null;
         var cropRect = outcome.Region.Offset(-vs.X, -vs.Y);
         return new CaptureResult
@@ -207,8 +231,8 @@ public sealed class CaptureService
     /// the editor canvas, pin, clipboard, saved files and history. The document's Effects are stored
     /// disabled with <see cref="AnnotationDocument.EffectsBaked"/> set, so exports never compose them
     /// again and the editor close hook does not leak them into the user's global effect preferences.
-    /// Window picks carry no inline annotations (the overlay toolbar is region-only), so shifting item
-    /// coordinates for the padding is not a concern. When disabled, the inputs pass through unchanged.
+    /// A pre-existing document (a region selection snapped onto a window, carrying inline annotations)
+    /// has its items shifted into the padded surround. When disabled, the inputs pass through unchanged.
     /// </summary>
     private AnnotationDocument? ApplyMacStyleIfEnabled(AnnotationDocument? doc, PixelBuffer image, CaptureMode mode, string? title, out PixelBuffer bakedImage)
     {
@@ -225,6 +249,23 @@ public sealed class CaptureService
             return doc;
         }
         effects.Enabled = false;
+
+        // Recompute the content offset exactly the way Compose built its canvas (rounded corners →
+        // shadow margins → symmetric frame padding) so inline annotations land on the same pixels.
+        int offsetX = 0, offsetY = 0;
+        var rounded = effects.Frame.CornerRadius >= 0.5 ? FrameEffect.RoundCorners(image, effects.Frame.CornerRadius) : image;
+        if (ShadowEffect.RenderShadowOnly(rounded, effects.Shadow, out int shadowX, out int shadowY) is not null)
+        {
+            offsetX = shadowX;
+            offsetY = shadowY;
+        }
+        if (effects.Frame.Padding >= 0.5 || effects.Frame.Background != BackgroundKind.None)
+        {
+            int pad = Math.Max(0, (int)Math.Round(effects.Frame.Padding));
+            offsetX += pad;
+            offsetY += pad;
+        }
+
         doc ??= new AnnotationDocument
         {
             ImageWidth = bakedImage.Width,
@@ -232,6 +273,12 @@ public sealed class CaptureService
             WindowTitle = title,
             CaptureMode = mode.ToString(),
         };
+        if (doc.Items.Count > 0)
+        {
+            foreach (var item in doc.Items) item.Move(offsetX, offsetY);
+        }
+        doc.ImageWidth = bakedImage.Width;
+        doc.ImageHeight = bakedImage.Height;
         doc.Effects = effects;
         doc.EffectsBaked = true;
         Log.Info($"macOS-style shadow baked into {mode} capture ({bakedImage.Width}x{bakedImage.Height}).");

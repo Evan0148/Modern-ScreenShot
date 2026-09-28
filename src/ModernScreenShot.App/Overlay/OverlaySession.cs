@@ -25,6 +25,9 @@ public sealed class OverlayOutcome
     /// <summary>Set when a window was confirmed in WindowPick mode (captured via PrintWindow).</summary>
     public IntPtr WindowHandle { get; init; }
     public WindowInfo? PickedWindow { get; init; }
+    /// <summary>Set in Region mode when the confirmed selection coincides exactly with a snapshot
+    /// window's bounds (click-snapped or hand-drawn); lets the capture bake the macOS-style shadow.</summary>
+    public WindowInfo? SnappedWindow { get; init; }
     public OverlayIntent Intent { get; init; } = OverlayIntent.Edit;
     /// <summary>Annotations drawn inline in the overlay; image pixels relative to Region. Null when none were drawn.</summary>
     public AnnotationDocument? AnnotationDocument { get; init; }
@@ -384,6 +387,7 @@ internal sealed class OverlaySession
         {
             Confirmed = true,
             Region = _selection,
+            SnappedWindow = Mode == CaptureMode.Region ? _windowEnum.FindByBounds(_selection) : null,
             Intent = intent,
             AnnotationDocument = Doc.Items.Count > 0 ? Doc : null,
         });

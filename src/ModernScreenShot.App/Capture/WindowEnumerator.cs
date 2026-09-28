@@ -87,6 +87,44 @@ public sealed class WindowEnumerator
         return best ?? top;
     }
 
+    /// <summary>
+    /// Returns the window from the last snapshot whose DWM frame bounds exactly equal
+    /// <paramref name="bounds"/> — deepest child preferred, mirroring <see cref="HitTest"/>'s child
+    /// preference. Desktop windows are excluded so a full-desktop region never matches.
+    /// </summary>
+    public WindowInfo? FindByBounds(PixelRect bounds)
+    {
+        if (bounds.IsEmpty) return null;
+        lock (_gate)
+        {
+            WindowInfo? bestChild = null;
+            int bestDepth = -1;
+            foreach (var top in _topLevel)
+            {
+                // Children live inside their top-level's bounds; the containment check avoids
+                // lazily enumerating children of unrelated windows.
+                if (!top.Bounds.Contains(bounds.X, bounds.Y)
+                    || top.Bounds.Right < bounds.Right || top.Bounds.Bottom < bounds.Bottom) continue;
+                List<(WindowInfo Info, int Depth)> children;
+                if (!_children.TryGetValue(top.Handle, out children!))
+                {
+                    children = EnumerateChildren(top.Handle);
+                    _children[top.Handle] = children;
+                }
+                foreach (var (info, depth) in children)
+                {
+                    if (info.Bounds == bounds && depth > bestDepth)
+                    {
+                        bestChild = info;
+                        bestDepth = depth;
+                    }
+                }
+            }
+            if (bestChild is not null) return bestChild;
+            return _topLevel.FirstOrDefault(w => w.Bounds == bounds);
+        }
+    }
+
     private (List<WindowInfo> Windows, List<WindowInfo> Desktop) EnumerateTopLevel()
     {
         var windows = new List<WindowInfo>();
