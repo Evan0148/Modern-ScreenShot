@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using ModernScreenShot.App.Editor;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
 using L = ModernScreenShot.App.Localization.LocalizationService;
@@ -105,7 +106,11 @@ internal sealed class OverlayRenderer : FrameworkElement
             DrawHint(dc, w, h);
         }
         if (_session.Selection is { } sel)
-            DrawSelection(dc, w, h, sel, showHandles: _session.State == OverlayState.Selected);
+        {
+            DrawSelectionFrame(dc, w, h, sel);
+            DrawAnnotations(dc, sel);
+            DrawSelectionDecorations(dc, w, h, sel, showHandles: _session.State == OverlayState.Selected);
+        }
 
         DrawMagnifier(dc, w, h);
     }
@@ -124,10 +129,10 @@ internal sealed class OverlayRenderer : FrameworkElement
         DrawLabel(dc, L.Get(_session.Mode == CaptureMode.WindowPick ? "Overlay.WindowHint" : "Overlay.Hint"),
             w / 2, 18, w, h, center: true);
 
-    private void DrawSelection(DrawingContext dc, double w, double h, PixelRect sel, bool showHandles)
+    /// <summary>Dim mask outside the selection plus the selection border (under the annotations).</summary>
+    private void DrawSelectionFrame(DrawingContext dc, double w, double h, PixelRect sel)
     {
         var r = _win.ToLocalDip(sel);
-        var full = new Rect(0, 0, w, h);
 
         // Build each dim band from clamped edges: a selection lying partly (or wholly) outside this
         // monitor makes the naive new Rect(0, r.Bottom, w, h - r.Bottom) negative-sized, which throws
@@ -143,8 +148,32 @@ internal sealed class OverlayRenderer : FrameworkElement
         Dim(0, r.Top, r.Left, r.Bottom); // left
         Dim(r.Right, r.Top, w, r.Bottom);// right
 
-        if (full.IntersectsWith(r)) dc.DrawRectangle(null, AccentPen, r);
+        if (new Rect(0, 0, w, h).IntersectsWith(r)) dc.DrawRectangle(null, AccentPen, r);
+    }
 
+    /// <summary>Inline annotations + mosaic layer, clipped to the selection. Annotation coordinates
+    /// are image pixels relative to the selection's top-left; 1 image px = 1/Scale DIP on screen.</summary>
+    private void DrawAnnotations(DrawingContext dc, PixelRect sel)
+    {
+        if (_session.Doc.Items.Count == 0 && _session.PreviewItem is null) return;
+        var local = _win.ToLocalDip(sel);
+        double s = _win.Scale;
+        var transform = new TransformGroup();
+        transform.Children.Add(new ScaleTransform(1 / s, 1 / s));
+        transform.Children.Add(new TranslateTransform(local.X, local.Y));
+        dc.PushClip(new RectangleGeometry(local));
+        dc.PushTransform(transform);
+        AnnotationRenderer.RenderDocument(dc, _session.Doc, _slice, _session.MosaicSource);
+        if (_session.PreviewItem is { } preview)
+            AnnotationRenderer.RenderItem(dc, preview, _slice, _session.MosaicSource);
+        dc.Pop();
+        dc.Pop();
+    }
+
+    /// <summary>Resize handles and the size label, drawn above the annotations.</summary>
+    private void DrawSelectionDecorations(DrawingContext dc, double w, double h, PixelRect sel, bool showHandles)
+    {
+        var r = _win.ToLocalDip(sel);
         if (showHandles)
         {
             foreach (var p in HandlePoints(r))

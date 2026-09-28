@@ -1,6 +1,7 @@
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Overlay;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
 
@@ -72,7 +73,8 @@ public sealed class CaptureService
         var frozen = _screen.Capture(vs, includeCursor: false);
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(mode, frozen, vs, frozen.ToBitmapSource(), _monitors, _windows,
-            _settings.Current.Capture.ShowMagnifier);
+            _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor);
+        session.Doc.Effects = _settings.Current.Effects.Clone();
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed)
         {
@@ -95,6 +97,14 @@ public sealed class CaptureService
             }
         }
 
+        AnnotationDocument? doc = null;
+        if (outcome.AnnotationDocument is { } inlineDoc)
+        {
+            inlineDoc.WindowTitle = outcome.PickedWindow?.Title;
+            inlineDoc.CaptureMode = mode.ToString();
+            doc = inlineDoc;
+        }
+
         if (outcome.WindowHandle != IntPtr.Zero)
         {
             var image = _windowCapturer.CaptureWindow(outcome.WindowHandle, _settings.Current.Capture.WindowTransparentCorners, out var title);
@@ -107,6 +117,7 @@ public sealed class CaptureService
                     WindowTitle = title,
                     SourceRect = outcome.PickedWindow?.Bounds ?? outcome.Region,
                     RequestedAction = MapIntent(outcome.Intent),
+                    AnnotationDocument = doc,
                 };
             }
             Log.Warn("Window capture failed after picking; falling back to the frozen region crop.");
@@ -121,6 +132,7 @@ public sealed class CaptureService
             WindowTitle = outcome.PickedWindow?.Title,
             SourceRect = outcome.Region,
             RequestedAction = MapIntent(outcome.Intent),
+            AnnotationDocument = doc,
         };
     }
 
@@ -149,7 +161,7 @@ public sealed class CaptureService
         var frozen = _screen.Capture(vs, includeCursor: false);
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(CaptureMode.Region, frozen, vs, frozen.ToBitmapSource(), _monitors,
-            _windows, _settings.Current.Capture.ShowMagnifier, autoConfirmOnSelect: true);
+            _windows, _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor, autoConfirmOnSelect: true);
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed || outcome.Region.IsEmpty) return null;
         return outcome.Region;

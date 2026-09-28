@@ -298,6 +298,9 @@ public partial class App
     /// <summary>
     /// Post-capture routing. Every confirmed capture is recorded in history (original + document +
     /// thumbnail); then the action from the overlay toolbar or the settings is executed.
+    /// Inline annotations drawn in the overlay travel with the result: the editor receives them as
+    /// an editable document on top of the clean crop, while direct outputs (copy/save/pin) get them
+    /// flattened into the pixels.
     /// </summary>
     private void DispatchCaptureResult(CaptureResult result)
     {
@@ -309,7 +312,7 @@ public partial class App
                 : output.AfterOtherCapture);
         Log.Info($"Dispatching {result.Mode} capture {result.Image.Width}x{result.Image.Height} via {action}.");
 
-        var doc = new AnnotationDocument
+        var doc = result.AnnotationDocument ?? new AnnotationDocument
         {
             ImageWidth = result.Image.Width,
             ImageHeight = result.Image.Height,
@@ -333,6 +336,22 @@ public partial class App
             default: // CopyOnly; ShowToolbar is handled by the overlay itself, which always supplies an intent
                 CopyToClipboard(result);
                 break;
+        }
+    }
+
+    /// <summary>Overlay copy/save/pin flatten inline annotations into the pixels; without them the clean crop passes through.</summary>
+    private static PixelBuffer ImageWithAnnotations(CaptureResult result)
+    {
+        var doc = result.AnnotationDocument;
+        if (doc is null || doc.Items.Count == 0) return result.Image;
+        try
+        {
+            return AnnotationFlattener.Flatten(result.Image, doc);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Flattening the inline annotations failed; exporting without them.", ex);
+            return result.Image;
         }
     }
 
@@ -363,7 +382,7 @@ public partial class App
 
     private void PinCapture(CaptureResult result)
     {
-        var pin = new PinWindow(result.Image, Services.GetRequiredService<ImageExporter>(),
+        var pin = new PinWindow(ImageWithAnnotations(result), Services.GetRequiredService<ImageExporter>(),
             Services.GetRequiredService<ClipboardService>(), OpenEditorForImage, OpenDefaultSaveFolder);
         pin.Closed += OnEditorClosed;
         EditorWindows.Add(pin); // same lifetime rule: keep the app alive while any floating window exists
@@ -445,7 +464,7 @@ public partial class App
 
     private static void CopyToClipboard(CaptureResult result)
     {
-        if (Services.GetRequiredService<ClipboardService>().TryPutImage(result.Image))
+        if (Services.GetRequiredService<ClipboardService>().TryPutImage(ImageWithAnnotations(result)))
             Log.Info("Capture copied to clipboard.");
         else
             Log.Error($"Copying {result.Image.Width}x{result.Image.Height} to the clipboard failed after retries.");
@@ -455,7 +474,7 @@ public partial class App
     {
         try
         {
-            var path = Services.GetRequiredService<ImageExporter>().QuickSave(result.Image, result.WindowTitle, result.Mode.ToString());
+            var path = Services.GetRequiredService<ImageExporter>().QuickSave(ImageWithAnnotations(result), result.WindowTitle, result.Mode.ToString());
             Log.Info($"Capture saved to {path}");
         }
         catch (Exception ex)

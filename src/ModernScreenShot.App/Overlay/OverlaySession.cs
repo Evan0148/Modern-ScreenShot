@@ -4,8 +4,10 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using ModernScreenShot.App.Capture;
+using ModernScreenShot.App.Editor;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
 using CaptureMode = ModernScreenShot.Core.Settings.CaptureMode;
@@ -24,6 +26,8 @@ public sealed class OverlayOutcome
     public IntPtr WindowHandle { get; init; }
     public WindowInfo? PickedWindow { get; init; }
     public OverlayIntent Intent { get; init; } = OverlayIntent.Edit;
+    /// <summary>Annotations drawn inline in the overlay; image pixels relative to Region. Null when none were drawn.</summary>
+    public AnnotationDocument? AnnotationDocument { get; init; }
 }
 
 internal enum OverlayState { Idle, Dragging, Selected }
@@ -50,7 +54,26 @@ internal sealed class OverlaySession
     private readonly List<OverlayWindow> _windows = [];
     private readonly MonitorService _monitors;
     private readonly WindowEnumerator _windowEnum;
+    private readonly EditorSettings _editor;
     private Action? _finished;
+
+    // ---- inline annotation state (Snipaste-style drawing directly on the frozen frame) ----
+    public AnnotationDocument Doc { get; } = new();
+    public UndoStack Undo { get; } = new();
+    private EditorTool? _tool;                       // active annotation tool; null = adjust selection
+    private AnnotationItem? _drawPreview;            // in-flight stroke, rendered but not committed
+    private VPoint _drawStartVirtual;
+    private PointD _drawStartImage;
+    private string? _pendingSnapshot;                // pre-stroke doc state, pushed on commit
+    private PixelBuffer? _cropPristine;              // selection crop without mosaic
+    private PixelRect _cropCacheRect;
+    private PixelBuffer? _mosaicScratch;
+    private BitmapSource? _mosaicSource;
+    private DateTime _lastMosaicRecompute = DateTime.MinValue;
+    /// <summary>Raised when annotation/undo state changed (toolbar highlight, undo/redo enablement).</summary>
+    public event EventHandler? AnnotationChanged;
+    /// <summary>Text tool pressed; the window shows a text box at this image-space position.</summary>
+    public event EventHandler<TextEditRequestEventArgs>? TextEditRequested;
 
     private OverlayState _state = OverlayState.Idle;
     private DragAction _drag = DragAction.None;
@@ -82,8 +105,32 @@ internal sealed class OverlaySession
     internal bool CursorValid => _cursorValid;
     internal bool ColorFlashActive => DateTime.UtcNow < _colorFlashUntil;
 
+    /// <summary>Active inline-annotation tool; null means the selection itself is being adjusted.</summary>
+    internal EditorTool? Tool
+    {
+        get => _tool;
+        set
+        {
+            if (_autoConfirm || value == _tool || _drawPreview is not null) return;
+            _tool = value is EditorTool.Select ? null : value;
+            AnnotationChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateAll();
+        }
+    }
+    internal BitmapSource? MosaicSource => _mosaicSource;
+    internal AnnotationItem? PreviewItem => _drawPreview;
+    internal double EditorFontSize => _editor.FontSize;
+    internal string EditorFontFamily => _editor.FontFamily;
+    /// <summary>Bold text is not configurable yet; the editor starts unbolded as well.</summary>
+    internal bool EditorFontBold => false;
+    internal string EditorStrokeColor => _editor.StrokeColor;
+    /// <summary>Inline annotation is available: region mode, a selection exists, toolbar visible.</summary>
+    internal bool CanAnnotate => !_autoConfirm && Mode == CaptureMode.Region
+        && _state == OverlayState.Selected && !_selection.IsEmpty;
+
     public OverlaySession(CaptureMode mode, PixelBuffer frozen, PixelRect virtualScreen, BitmapSource frozenSource,
-        MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled, bool autoConfirmOnSelect = false)
+        MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled, EditorSettings editor,
+        bool autoConfirmOnSelect = false)
     {
         Mode = mode is CaptureMode.Region or CaptureMode.WindowPick ? mode : CaptureMode.Region;
         Frozen = frozen;
@@ -91,6 +138,7 @@ internal sealed class OverlaySession
         FrozenSource = frozenSource;
         _monitors = monitors;
         _windowEnum = windowEnum;
+        _editor = editor;
         MagnifierEnabled = magnifierEnabled;
         _autoConfirm = autoConfirmOnSelect;
     }
@@ -152,6 +200,9 @@ internal sealed class OverlaySession
             case OverlayState.Dragging:
                 UpdateDrag(p);
                 break;
+            case OverlayState.Selected when _drawPreview is not null:
+                UpdateDraw(p);
+                break;
             case OverlayState.Selected when _drag is DragAction.Move or DragAction.Resize:
                 // Handle/body presses from OnLeftDown set _drag while staying in Selected.
                 UpdateDrag(p);
@@ -164,6 +215,15 @@ internal sealed class OverlaySession
     {
         _cursor = p;
         _cursorValid = true;
+        // An active annotation tool swallows presses inside the selection; presses outside still
+        // fall through to the selection logic below so the region can be redrawn/adjusted.
+        if (_state == OverlayState.Selected && Tool is { } tool
+            && Mode == CaptureMode.Region && _selection.Contains(p.X, p.Y))
+        {
+            BeginDraw(p);
+            InvalidateAll();
+            return;
+        }
         if (_state == OverlayState.Idle)
         {
             if (Mode == CaptureMode.Region) StartNewRegion(p);
@@ -198,6 +258,13 @@ internal sealed class OverlaySession
     {
         _cursor = p;
         _cursorValid = true;
+        // Releasing an annotation stroke never confirms/cancels the session.
+        if (_drawPreview is not null)
+        {
+            CommitDraw();
+            InvalidateAll();
+            return;
+        }
         var drag = _drag;
         _drag = DragAction.None;
 
@@ -256,6 +323,10 @@ internal sealed class OverlaySession
                 CopyCursorColor();
                 InvalidateAll();
                 return true;
+            case Key.V or Key.R or Key.E or Key.L or Key.A or Key.P or Key.H or Key.T or Key.N or Key.M
+                when CanAnnotate && Keyboard.Modifiers == ModifierKeys.None:
+                Tool = KeyToTool(key);
+                return true;
             case Key.Left when _state == OverlayState.Selected:
                 Nudge(shift ? -10 : -1, 0);
                 return true;
@@ -276,7 +347,15 @@ internal sealed class OverlaySession
     internal void Confirm(OverlayIntent intent)
     {
         if (_selection.IsEmpty) return;
-        EndSession(new OverlayOutcome { Confirmed = true, Region = _selection, Intent = intent });
+        Doc.ImageWidth = _selection.Width;
+        Doc.ImageHeight = _selection.Height;
+        EndSession(new OverlayOutcome
+        {
+            Confirmed = true,
+            Region = _selection,
+            Intent = intent,
+            AnnotationDocument = Doc.Items.Count > 0 ? Doc : null,
+        });
     }
 
     internal void ConfirmWindowPick()
@@ -342,6 +421,7 @@ internal sealed class OverlaySession
 
     private void StartNewRegion(VPoint p)
     {
+        if (Doc.Items.Count > 0) ClearAnnotations(); // redrawing the region restarts annotation too (undoable)
         _state = OverlayState.Dragging;
         _drag = DragAction.NewRegion;
         _pressPoint = p;
@@ -359,12 +439,26 @@ internal sealed class OverlaySession
             {
                 int nx = Math.Clamp(p.X - _grabOffset.X, Virtual.X, Math.Max(Virtual.X, Virtual.Right - _dragAnchor.Width));
                 int ny = Math.Clamp(p.Y - _grabOffset.Y, Virtual.Y, Math.Max(Virtual.Y, Virtual.Bottom - _dragAnchor.Height));
-                _selection = new PixelRect(nx, ny, _dragAnchor.Width, _dragAnchor.Height);
+                MoveSelectionTo(nx, ny);
                 break;
             }
             case DragAction.Resize:
-                _selection = Resize(_dragAnchor, _handle, p.X - _pressPoint.X, p.Y - _pressPoint.Y);
+                var resized = Resize(_dragAnchor, _handle, p.X - _pressPoint.X, p.Y - _pressPoint.Y);
+                MoveSelectionTo(resized.X, resized.Y, resized.Width, resized.Height);
                 break;
+        }
+    }
+
+    /// <summary>Assigns the selection and keeps inline annotations glued to the screen pixels they
+    /// mark by shifting them with the selection's top-left corner.</summary>
+    private void MoveSelectionTo(int x, int y, int? width = null, int? height = null)
+    {
+        int dx = x - _selection.X, dy = y - _selection.Y;
+        _selection = width is { } w && height is { } h ? new PixelRect(x, y, w, h) : new PixelRect(x, y, _selection.Width, _selection.Height);
+        if ((dx != 0 || dy != 0) && Doc.Items.Count > 0)
+        {
+            foreach (var item in Doc.Items) item.Move(-dx, -dy);
+            if (_mosaicSource is not null || Doc.Items.OfType<MosaicItem>().Any()) RecomputeMosaic();
         }
     }
 
@@ -374,6 +468,239 @@ internal sealed class OverlaySession
         _hover = wi;
         if (wi is null) return;
         _selection = ClampToVirtual(wi.Bounds);
+    }
+
+    // ---- inline annotation (Snipaste-style drawing on the frozen frame) ----
+
+    private static EditorTool? KeyToTool(Key key) => key switch
+    {
+        Key.V => EditorTool.Select,
+        Key.R => EditorTool.Rect,
+        Key.E => EditorTool.Ellipse,
+        Key.L => EditorTool.Line,
+        Key.A => EditorTool.Arrow,
+        Key.P => EditorTool.Pen,
+        Key.H => EditorTool.Highlighter,
+        Key.T => EditorTool.Text,
+        Key.N => EditorTool.Step,
+        Key.M => EditorTool.Mosaic,
+        _ => null,
+    };
+
+    private PointD ToImage(VPoint p) => new(p.X - _selection.X, p.Y - _selection.Y);
+
+    private static double Dist(PointD a, PointD b)
+    {
+        double dx = a.X - b.X, dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private void BeginDraw(VPoint p)
+    {
+        var img = ToImage(p);
+        _drawStartVirtual = p;
+        _drawStartImage = img;
+        switch (Tool)
+        {
+            case EditorTool.Text:
+                TextEditRequested?.Invoke(this, new TextEditRequestEventArgs(null, img));
+                return;
+            case EditorTool.Step:
+            {
+                _pendingSnapshot ??= UndoStack.Serialize(Doc);
+                var step = new StepItem { Center = img, Radius = 16, StrokeColor = _editor.StrokeColor, Number = Doc.NextStepNumber() };
+                Doc.Items.Add(step);
+                Doc.RenumberSteps();
+                FinishSnapshot();
+                return;
+            }
+        }
+        _pendingSnapshot ??= UndoStack.Serialize(Doc);
+        _drawPreview = Tool switch
+        {
+            EditorTool.Rect => new RectItem { Rect = new RectD(img.X, img.Y, 0, 0) },
+            EditorTool.Ellipse => new EllipseItem { Rect = new RectD(img.X, img.Y, 0, 0) },
+            EditorTool.Line => new LineItem { Start = img, End = img },
+            EditorTool.Arrow => new ArrowItem { Start = img, End = img },
+            EditorTool.Pen => new PenItem { Points = [img] },
+            EditorTool.Highlighter => new HighlighterItem { Points = [img] },
+            EditorTool.Mosaic => new MosaicItem { Mode = MosaicMode.Pixelate, Strength = _editor.MosaicCellSize, Rect = new RectD(img.X, img.Y, 0, 0) },
+            _ => null,
+        };
+        if (_drawPreview is not null) ApplyCommonProps(_drawPreview);
+    }
+
+    private void UpdateDraw(VPoint p)
+    {
+        var img = ToImage(p);
+        switch (_drawPreview)
+        {
+            case RectItem b:
+                b.Rect = RectD.FromPoints(_drawStartImage, img);
+                break;
+            case EllipseItem e:
+                e.Rect = RectD.FromPoints(_drawStartImage, img);
+                break;
+            case MosaicItem m:
+                m.Rect = RectD.FromPoints(_drawStartImage, img);
+                RecomputeMosaicThrottled();
+                break;
+            case ArrowItem a: // ArrowItem : LineItem — must precede LineItem
+                a.End = img;
+                break;
+            case LineItem l:
+                l.End = img;
+                break;
+            case HighlighterItem h: // HighlighterItem : PenItem — must precede PenItem
+            {
+                var last = h.Points[^1];
+                if (Dist(img, last) >= 1) h.Points.Add(img);
+                break;
+            }
+            case PenItem pen:
+            {
+                var last = pen.Points[^1];
+                if (Dist(img, last) >= 1) pen.Points.Add(img);
+                break;
+            }
+        }
+    }
+
+    private void CommitDraw()
+    {
+        var item = _drawPreview;
+        _drawPreview = null;
+        if (item is null) return;
+        bool valid = item switch
+        {
+            HighlighterItem h => h.Points.Count >= 2, // derived types first: HighlighterItem : PenItem
+            PenItem pen => pen.Points.Count >= 2,
+            ArrowItem a => Dist(a.Start, a.End) >= 2, // ArrowItem : LineItem
+            LineItem l => Dist(l.Start, l.End) >= 2,
+            BoxItem b => b.Rect.Width >= 2 && b.Rect.Height >= 2,
+            _ => false,
+        };
+        if (valid)
+        {
+            Doc.Items.Add(item);
+            if (item is MosaicItem) RecomputeMosaic();
+            FinishSnapshot();
+        }
+        else if (item is MosaicItem)
+        {
+            RecomputeMosaic(); // drop the preview's mosaic contribution
+            _pendingSnapshot = null;
+        }
+        else
+        {
+            _pendingSnapshot = null; // discarded dot/zero-size stroke: no undo entry
+        }
+    }
+
+    /// <summary>Commits text typed in the overlay's text box (image-space position from the Text tool).</summary>
+    internal void CommitText(PointD position, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        _pendingSnapshot ??= UndoStack.Serialize(Doc);
+        var item = new TextItem
+        {
+            Position = position,
+            Text = text,
+            FontSize = _editor.FontSize,
+            Bold = false,
+            StrokeColor = _editor.StrokeColor,
+        };
+        AnnotationCanvas.MeasureTextItem(item);
+        Doc.Items.Add(item);
+        FinishSnapshot();
+    }
+
+    internal void DoUndo()
+    {
+        if (_drawPreview is not null) return;
+        var d = Undo.Undo(Doc);
+        if (d is not null) ReplaceDoc(d);
+    }
+
+    internal void DoRedo()
+    {
+        if (_drawPreview is not null) return;
+        var d = Undo.Redo(Doc);
+        if (d is not null) ReplaceDoc(d);
+    }
+
+    private void ReplaceDoc(AnnotationDocument d)
+    {
+        Doc.Items = d.Items;
+        Doc.Crop = d.Crop;
+        RecomputeMosaic();
+        AnnotationChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateAll();
+    }
+
+    private void ClearAnnotations()
+    {
+        _pendingSnapshot ??= UndoStack.Serialize(Doc);
+        Doc.Items.Clear();
+        RecomputeMosaic();
+        FinishSnapshot();
+    }
+
+    private void FinishSnapshot()
+    {
+        if (_pendingSnapshot is null) return;
+        Undo.PushSerialized(_pendingSnapshot);
+        _pendingSnapshot = null;
+        AnnotationChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ApplyCommonProps(AnnotationItem item)
+    {
+        item.StrokeColor = _editor.StrokeColor;
+        if (item is HighlighterItem) item.Opacity = 0.45;
+        else if (item is not MosaicItem and not TextItem and not StepItem)
+            item.StrokeThickness = _editor.StrokeThickness;
+    }
+
+    /// <summary>Pixels the committed (and in-flight) mosaic rects into a cached copy of the selection crop.</summary>
+    private void RecomputeMosaic()
+    {
+        var items = Doc.Items.OfType<MosaicItem>().ToList();
+        if (_drawPreview is MosaicItem preview) items.Add(preview);
+        if (items.Count == 0 || _selection.IsEmpty)
+        {
+            _mosaicSource = null;
+            _mosaicScratch = null;
+            _cropPristine = null;
+            _cropCacheRect = default;
+            return;
+        }
+        if (_cropPristine is null || _cropCacheRect != _selection)
+        {
+            _cropPristine = Frozen.Crop(new PixelRect(
+                _selection.X - Virtual.X, _selection.Y - Virtual.Y, _selection.Width, _selection.Height));
+            _cropCacheRect = _selection;
+            _mosaicScratch = null;
+        }
+        _mosaicScratch ??= _cropPristine.Clone();
+        Array.Copy(_cropPristine.Data, _mosaicScratch.Data, _cropPristine.Data.Length);
+        var full = new PixelRect(0, 0, _selection.Width, _selection.Height);
+        foreach (var m in items)
+        {
+            var r = m.Rect.ToPixelRect().Intersect(full);
+            if (r.IsEmpty) continue;
+            if (m.Mode == MosaicMode.Pixelate) Mosaic.Pixelate(_mosaicScratch, r, m.Strength);
+            else Mosaic.Blur(_mosaicScratch, r, m.Strength);
+        }
+        _mosaicSource = _mosaicScratch.ToBitmapSource();
+    }
+
+    /// <summary>Mosaic preview during a drag: the recompute copies and re-processes the whole crop, so throttle it.</summary>
+    private void RecomputeMosaicThrottled()
+    {
+        if ((DateTime.UtcNow - _lastMosaicRecompute).TotalMilliseconds < 40) return;
+        _lastMosaicRecompute = DateTime.UtcNow;
+        RecomputeMosaic();
     }
 
     private void CopyCursorColor()
@@ -397,7 +724,7 @@ internal sealed class OverlaySession
     {
         if (_selection.IsEmpty) return;
         var moved = ClampToVirtual(_selection.Offset(dx, dy));
-        if (!moved.IsEmpty) _selection = moved;
+        if (!moved.IsEmpty) MoveSelectionTo(moved.X, moved.Y);
         InvalidateAll();
     }
 

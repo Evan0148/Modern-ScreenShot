@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Capture;
+using ModernScreenShot.App.Editor;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
@@ -24,6 +25,7 @@ internal sealed class OverlayWindow : Window
     private readonly OverlaySession _session;
     private readonly OverlayRenderer _renderer;
     private readonly Border _toolbarHost;
+    private readonly Canvas _toolbarLayer;
     private readonly TranslateTransform _toolbarOffset = new();
     private Size _toolbarSize;
     private bool _toolbarShown;
@@ -61,12 +63,12 @@ internal sealed class OverlayWindow : Window
         _toolbarHost = BuildToolbar();
         // Canvas + TranslateTransform lets the toolbar move by only updating a transform, which
         // skips the full window Measure/Arrange pass that a Margin change would trigger every frame.
-        var toolbarLayer = new Canvas { IsHitTestVisible = true };
+        _toolbarLayer = new Canvas { IsHitTestVisible = true };
         _toolbarHost.RenderTransform = _toolbarOffset;
-        toolbarLayer.Children.Add(_toolbarHost);
+        _toolbarLayer.Children.Add(_toolbarHost);
         var grid = new Grid();
         grid.Children.Add(_renderer);
-        grid.Children.Add(toolbarLayer);
+        grid.Children.Add(_toolbarLayer);
         Content = grid;
 
         SourceInitialized += (_, _) => PlaceWindow(activate);
@@ -77,9 +79,15 @@ internal sealed class OverlayWindow : Window
             if (activate) { Activate(); _renderer.Focus(); }
         };
         DpiChanged += (_, _) => _dpiCache = -1;
+        _session.AnnotationChanged += OnAnnotationChanged;
+        _session.Undo.Changed += OnAnnotationChanged;
+        _session.TextEditRequested += OnTextEditRequested;
         Closed += (_, _) =>
         {
             if (_renderHooked) { CompositionTarget.Rendering -= OnRenderingFrame; _renderHooked = false; }
+            _session.AnnotationChanged -= OnAnnotationChanged;
+            _session.Undo.Changed -= OnAnnotationChanged;
+            _session.TextEditRequested -= OnTextEditRequested;
             _session.OnWindowClosed(this);
         };
 
@@ -161,12 +169,35 @@ internal sealed class OverlayWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_textOverlay is not null && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase) return; // typing
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.Z:
+                    e.Handled = true;
+                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) _session.DoRedo();
+                    else _session.DoUndo();
+                    return;
+                case Key.Y:
+                    e.Handled = true;
+                    _session.DoRedo();
+                    return;
+            }
+        }
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
         if (_session.OnKey(e.Key, shift)) e.Handled = true;
     }
 
     private void OnPreviewLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (_textOverlay is not null)
+        {
+            CloseTextOverlay(commit: true);
+            if (IsOverToolbar(e)) return; // let the toolbar button receive the click
+            e.Handled = true;             // the click elsewhere only finishes the text
+            return;
+        }
         if (IsOverToolbar(e)) return;
         var p = ToVirtual(e.GetPosition(_renderer));
         if (e.ClickCount >= 2) _session.OnDoubleClick(this, p);
@@ -209,6 +240,7 @@ internal sealed class OverlayWindow : Window
     private void ApplyCursorShape()
     {
         var cur = _session.Cursor;
+        if (_session.Tool is not null) { Cursor = Cursors.Cross; return; }
         if (_session.CursorValid && !Monitor.Bounds.Contains(cur.X, cur.Y))
         {
             Cursor = Cursors.Cross;
@@ -232,20 +264,46 @@ internal sealed class OverlayWindow : Window
 
     // ---- toolbar ----
 
+    private static readonly Brush ActiveToolBrush = Freeze(new SolidColorBrush(Color.FromArgb(0xE6, 0x0A, 0x84, 0xFF)));
+    private static readonly Brush HoverBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
+    private readonly Dictionary<EditorTool, Button> _toolButtons = [];
+    private Button _undoButton = null!, _redoButton = null!;
+    private TextBox? _textOverlay;
+
+    /// <summary>Snipaste-style icon strip: annotation tools, undo/redo, then the output actions.</summary>
     private Border BuildToolbar()
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        AddToolButton(panel, "\uE70F", "Action.Edit", OverlayIntent.Edit);
-        AddToolButton(panel, "\uE8C8", "Action.Copy", OverlayIntent.Copy);
-        AddToolButton(panel, "\uE74E", "Action.Save", OverlayIntent.Save);
-        AddToolButton(panel, "\uE718", "Action.Pin", OverlayIntent.Pin);
-        AddToolButton(panel, "\uE711", "Action.Cancel", null);
+        void Sep() => panel.Children.Add(new Separator { Margin = new Thickness(2, 7, 2, 7) });
+
+        AddToolButton(panel, EditorTool.Select, SelectIcon());
+        AddToolButton(panel, EditorTool.Rect, ShapeIcon(new RectangleGeometry(new Rect(2.5, 4.5, 13, 9))));
+        AddToolButton(panel, EditorTool.Ellipse, ShapeIcon(new EllipseGeometry(new Point(9, 9), 7, 5.5)));
+        AddToolButton(panel, EditorTool.Line, ShapeIcon(Geo(g => { g.BeginFigure(new Point(2, 14), false, false); g.LineTo(new Point(2, 14), true, false); g.LineTo(new Point(16, 2), true, false); })));
+        AddToolButton(panel, EditorTool.Arrow, ShapeIcon(ArrowGeometry()));
+        AddToolButton(panel, EditorTool.Pen, GlyphIcon("\uE70F"));
+        AddToolButton(panel, EditorTool.Highlighter, GlyphIcon("\uE7E6"));
+        AddToolButton(panel, EditorTool.Text, TextIcon("T"));
+        AddToolButton(panel, EditorTool.Step, TextIcon("\u2460"));
+        AddToolButton(panel, EditorTool.Mosaic, MosaicIcon());
+        Sep();
+        _undoButton = MakeIconButton("\uE7A7", "Action.Undo", (_, _) => _session.DoUndo());
+        _redoButton = MakeIconButton("\uE7A6", "Action.Redo", (_, _) => _session.DoRedo());
+        panel.Children.Add(_undoButton);
+        panel.Children.Add(_redoButton);
+        Sep();
+        panel.Children.Add(MakeIconButton("\uE8C8", "Action.Copy", (_, _) => _session.Confirm(OverlayIntent.Copy)));
+        panel.Children.Add(MakeIconButton("\uE74E", "Action.Save", (_, _) => _session.Confirm(OverlayIntent.Save)));
+        panel.Children.Add(MakeIconButton("\uE718", "Action.Pin", (_, _) => _session.Confirm(OverlayIntent.Pin)));
+        panel.Children.Add(MakeIconButton("\uE73E", "Action.Edit", (_, _) => _session.Confirm(OverlayIntent.Edit)));
+        panel.Children.Add(MakeIconButton("\uE711", "Action.Cancel", (_, _) => _session.Cancel()));
+
         return new Border
         {
             Child = panel,
             Background = new SolidColorBrush(Color.FromArgb(0xEA, 0x1C, 0x1C, 0x1E)),
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(6, 5, 6, 5),
+            Padding = new Thickness(5, 4, 5, 4),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
             Visibility = Visibility.Collapsed,
@@ -254,41 +312,157 @@ internal sealed class OverlayWindow : Window
         };
     }
 
-    private void AddToolButton(StackPanel panel, string glyph, string textKey, OverlayIntent? intent)
+    private Button AddToolButton(StackPanel panel, EditorTool tool, FrameworkElement icon)
     {
-        var content = new StackPanel { Orientation = Orientation.Horizontal };
-        content.Children.Add(new TextBlock
-        {
-            Text = glyph,
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 13,
-            Foreground = Brushes.White,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(2, 0, 5, 0),
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = L.Get(textKey),
-            FontSize = 12,
-            Foreground = Brushes.White,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 2, 0),
-        });
+        var button = MakeIconButton(null, $"Tool.{tool}", (_, _) =>
+            _session.Tool = _session.Tool == tool ? null : tool);
+        button.Content = icon;
+        _toolButtons[tool] = button;
+        panel.Children.Add(button);
+        return button;
+    }
+
+    private Button MakeIconButton(string? glyph, string tooltipKey, RoutedEventHandler onClick)
+    {
         var button = new Button
         {
-            Content = content,
+            Width = 32,
+            Height = 30,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Foreground = Brushes.White,
-            Padding = new Thickness(9, 5, 9, 5),
-            Cursor = Cursors.Hand,
             Focusable = false,
+            Cursor = Cursors.Hand,
+            ToolTip = L.Get(tooltipKey),
         };
-        var hover = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
-        button.MouseEnter += (_, _) => button.Background = hover;
-        button.MouseLeave += (_, _) => button.Background = Brushes.Transparent;
-        button.Click += (_, _) => { if (intent is { } i) _session.Confirm(i); else _session.Cancel(); };
-        panel.Children.Add(button);
+        if (glyph is not null)
+        {
+            button.Content = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 15,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+        }
+        button.Click += onClick;
+        button.MouseEnter += (_, _) => { if (!ReferenceEquals(ActiveToolButton(), button)) button.Background = HoverBrush; };
+        button.MouseLeave += (_, _) => { if (!ReferenceEquals(ActiveToolButton(), button)) button.Background = Brushes.Transparent; };
+        return button;
+    }
+
+    private Button? ActiveToolButton() =>
+        _session.Tool is { } tool && _toolButtons.TryGetValue(tool, out var b) ? b : null;
+
+    /// <summary>Syncs tool highlight and undo/redo enablement with the session state.</summary>
+    private void RefreshToolbarState()
+    {
+        var active = ActiveToolButton();
+        foreach (var (_, button) in _toolButtons)
+            button.Background = ReferenceEquals(button, active) ? ActiveToolBrush : Brushes.Transparent;
+        _undoButton.IsEnabled = _session.Undo.CanUndo;
+        _redoButton.IsEnabled = _session.Undo.CanRedo;
+    }
+
+    // icon factories — plain shapes/text so no exotic glyphs are needed
+
+    private static TextBlock GlyphIcon(string glyph) => new()
+    {
+        Text = glyph,
+        FontFamily = new FontFamily("Segoe MDL2 Assets"),
+        FontSize = 15,
+        Foreground = Brushes.White,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 0, 0),
+    };
+
+    private static TextBlock TextIcon(string text) => new()
+    {
+        Text = text,
+        FontFamily = new FontFamily("Segoe UI"),
+        FontSize = 15,
+        FontWeight = FontWeights.Bold,
+        Foreground = Brushes.White,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static Canvas ShapeIcon(Geometry geo)
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = geo,
+            Stroke = Brushes.White,
+            StrokeThickness = 1.6,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+        return new Canvas { Width = 18, Height = 18, Children = { path } };
+    }
+
+    private static Geometry Geo(Action<StreamGeometryContext> build)
+    {
+        var geo = new StreamGeometry();
+        using (var ctx = geo.Open()) build(ctx);
+        return geo;
+    }
+
+    private static Geometry ArrowGeometry() => Geo(g =>
+    {
+        g.BeginFigure(new Point(2, 14), false, false);
+        g.LineTo(new Point(13, 3), true, false);
+        g.LineTo(new Point(13, 8), true, false);
+        g.LineTo(new Point(16, 2), true, false);
+        g.LineTo(new Point(10, 3), true, false);
+    });
+
+    private static Canvas SelectIcon()
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = Geo(g =>
+            {
+                g.BeginFigure(new Point(4, 2), false, false);
+                g.LineTo(new Point(4, 15), true, false);
+                g.LineTo(new Point(7.5, 11.5), true, false);
+                g.LineTo(new Point(10, 16), true, false);
+                g.LineTo(new Point(12, 15), true, false);
+                g.LineTo(new Point(9.5, 10.5), true, false);
+                g.LineTo(new Point(14, 10), true, false);
+            }),
+            Stroke = Brushes.White,
+            StrokeThickness = 1.5,
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+        return new Canvas { Width = 18, Height = 18, Children = { path } };
+    }
+
+    private static Canvas MosaicIcon()
+    {
+        var canvas = new Canvas { Width = 18, Height = 18 };
+        for (int y = 0; y < 3; y++)
+        {
+            for (int x = 0; x < 3; x++)
+            {
+                canvas.Children.Add(new System.Windows.Shapes.Rectangle
+                {
+                    Width = 4.4,
+                    Height = 4.4,
+                    Margin = new Thickness(2 + x * 5, 2 + y * 5, 0, 0),
+                    Fill = x == 1 && y == 1 ? Brushes.White : new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)),
+                });
+            }
+        }
+        return canvas;
+    }
+
+    private static T Freeze<T>(T freezable) where T : Freezable
+    {
+        freezable.Freeze();
+        return freezable;
     }
 
     /// <summary>Positions the toolbar relative to the selection; only the monitor holding the
@@ -329,5 +503,65 @@ internal sealed class OverlayWindow : Window
         y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
         _toolbarOffset.X = x;
         _toolbarOffset.Y = y;
+        RefreshToolbarState();
+    }
+
+    // ---- inline annotation UI ----
+
+    private Core.Annotation.PointD _textEditPosition;
+
+    private void OnAnnotationChanged(object? sender, EventArgs e) => RefreshToolbarState();
+
+    private void OnTextEditRequested(object? sender, TextEditRequestEventArgs e)
+    {
+        CloseTextOverlay(commit: false);
+        _textEditPosition = e.Position;
+        double scale = Scale;
+        var sel = _session.Selection!.Value;
+        _textOverlay = new TextBox
+        {
+            AcceptsReturn = true,
+            FontSize = _session.EditorFontSize / scale,
+            FontFamily = new FontFamily(_session.EditorFontFamily),
+            FontWeight = _session.EditorFontBold ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = AnnotationRenderer.BrushFor(_session.EditorStrokeColor),
+            Background = new SolidColorBrush(Color.FromArgb(0xC0, 0xFF, 0xFF, 0xFF)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)),
+            BorderThickness = new Thickness(1.5),
+            MinWidth = 120,
+            Padding = new Thickness(2, 0, 2, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        _textOverlay.KeyDown += (_, args) =>
+        {
+            if (args.Key == Key.Enter && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+            {
+                args.Handled = true;
+                CloseTextOverlay(commit: true);
+            }
+            else if (args.Key == Key.Escape)
+            {
+                args.Handled = true;
+                CloseTextOverlay(commit: false);
+            }
+        };
+        _textOverlay.LostFocus += (_, _) => CloseTextOverlay(commit: true);
+        _toolbarLayer.Children.Add(_textOverlay);
+        var local = ToLocalDip(new PixelRect(sel.X + (int)e.Position.X, sel.Y + (int)e.Position.Y, 0, 0));
+        Canvas.SetLeft(_textOverlay, Math.Clamp(local.X, 2, Math.Max(2, ActualWidth - 140)));
+        Canvas.SetTop(_textOverlay, Math.Clamp(local.Y, 2, Math.Max(2, ActualHeight - 60)));
+        _textOverlay.Focus();
+    }
+
+    private void CloseTextOverlay(bool commit)
+    {
+        if (_textOverlay is null) return;
+        var tb = _textOverlay;
+        var pos = _textEditPosition;
+        _textOverlay = null;
+        _toolbarLayer.Children.Remove(tb);
+        if (commit) _session.CommitText(pos, tb.Text);
+        _session.InvalidateAll();
     }
 }
