@@ -1,10 +1,14 @@
 # KNOWN ISSUES / 备忘
 按任务顺序记录无人值守期间自行决定的事项与未验证点。用户手工测试时可对照检查。
 
+## 编辑器棋盘格背景 + PrintWindow 黑边备忘（2026-09-28 晚，5a06c1f / db8de87 之后）
+
+- **用户报"编辑器窗口显示有问题"**：mac 阴影截图在编辑器里显示成一块平板灰卡。根因 = `AnnotationCanvas.OnRender` 用纯 `Brushes.DimGray` 做画布背景，带 alpha 的烘焙截图（透明四周 + 阴影）叠在上面完全看不出透明与阴影。已改为**透明棋盘格**（`AnnotationRenderer.CheckerboardBrush`，16px 屏幕空间纹理，与效果预览同一画刷，Frozen 共享单例）；真机 E2E 断言 checker 像素 >5800、DimGray=0。**编辑器布局本身正常**（工具条/属性面板/动作栏齐全，`--render-editor` 渲染可证）——用户截图里"工具条消失"是 Snipaste 截图区域裁掉了窗口顶部、且暗色主题下工具条与画布底色接近所致。
+- **PrintWindow 未绘制边缘烘成黑边（既有限制，本次测试中显形）**：`TryPrintWindow` 的 DIB 尺寸=窗口矩形，个别窗口 WM_PRINT 只绘制部分区域（DPI 不感知宿主、部分 GPU/UWP 内容面），未绘制像素为黑，`forceOpaque` 把它抬成不透明黑边烘进内容右/下边缘。真实应用（Chrome/Office/Explorer 等 DPI 感知窗口）未见此问题；测试用的 DPI 不感知 WinForms 宿主会复现（右 ~14px/下 ~11px 黑边）。若真机遇到可反馈，方向是按 client rect 二次裁剪或检测全黑行列收缩。
+
 ## Goal 模式三阶段复查（2026-09-28 晚，提交 7ea9ead / ab5f875 / 21444de）
 
 对 1f62468..42dbe56 新增功能做第二轮审查（两个串行审查代理），**12 项修复已实施，全部门禁通过（构建 0/0、harness、smoke 0、i18n 207 键）**：
-
 - **P1 马赛克越界崩溃**：叠加层里马赛克矩形拖出选区边界（或选区缩小后）每帧渲染抛 ArgumentException——`AnnotationRenderer.DrawMosaic` 此前按 baseImage（整显示器尺寸）裁剪、却从 mosaicSource（仅选区尺寸）裁剪；已改为对 mosaicSource 自身裁剪。
 - **P2 编辑器橡皮擦撤销丢失**：擦除拖动中按 Esc / 切工具会丢弃已删除项的撤销快照——`AbortInteraction`/`CommitPreview` 在 `_erasedAny` 时改为提交撤销；`FinishErase` 消费后复位 `_erasedAny` 防止残留标记污染下一步撤销。
 - **P2 橡皮擦命中改为几何判定**：此前按包围盒命中（斜线/锯齿画笔的包围盒远大于笔迹，点空白处也会删）——新增 `AnnotationRenderer.HitsForErase`（线段距离/圆/包围盒），叠加层与编辑器共用，容差 max(6, 粗细/2+4)。

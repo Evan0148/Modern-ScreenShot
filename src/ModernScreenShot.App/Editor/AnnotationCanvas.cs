@@ -387,7 +387,11 @@ public sealed class AnnotationCanvas : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        dc.DrawRectangle(Brushes.DimGray, null, new Rect(0, 0, Math.Max(Width, 0), Math.Max(Height, 0)));
+        // Transparency checkerboard (same pattern as the effects preview): the mac-style window
+        // shots carry a transparent surround with a baked soft shadow, which read as a flat gray
+        // card on the old solid DimGray backdrop. Screen-space tiles keep the squares 16px at
+        // every zoom level; drawn before the zoom transform.
+        dc.DrawRectangle(AnnotationRenderer.CheckerboardBrush(), null, new Rect(0, 0, Math.Max(Width, 0), Math.Max(Height, 0)));
         dc.PushTransform(new ScaleTransform(Zoom, Zoom));
 
         var full = new Rect(0, 0, ImageWidth, ImageHeight);

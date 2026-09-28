@@ -17,6 +17,36 @@ internal static class AnnotationRenderer
 {
     private static readonly ConcurrentDictionary<string, Brush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly Brush Checkerboard = BuildCheckerboard();
+
+    /// <summary>Transparency checkerboard for image backdrops (editor canvas, effects preview):
+    /// light squares keep black shadows and dark content readable over transparent areas.</summary>
+    public static Brush CheckerboardBrush() => Checkerboard;
+
+    private static Brush BuildCheckerboard()
+    {
+        var group = new DrawingGroup();
+        group.Children.Add(new GeometryDrawing
+        {
+            Brush = Freeze(new SolidColorBrush(Color.FromRgb(0xE2, 0xE2, 0xE6))),
+            Geometry = new RectangleGeometry(new Rect(0, 0, 16, 16)),
+        });
+        var dark = Freeze(new SolidColorBrush(Color.FromRgb(0xC2, 0xC2, 0xC8)));
+        foreach (var (x, y) in new[] { (0, 0), (8, 8) })
+            group.Children.Add(new GeometryDrawing
+            {
+                Brush = dark,
+                Geometry = new RectangleGeometry(new Rect(x, y, 8, 8)),
+            });
+        return Freeze(new DrawingBrush
+        {
+            Drawing = group,
+            Viewport = new Rect(0, 0, 16, 16),
+            ViewportUnits = BrushMappingMode.Absolute,
+            TileMode = TileMode.Tile,
+        });
+    }
+
     public static Brush BrushFor(string hex)
     {
         if (BrushCache.TryGetValue(hex, out var cached)) return cached;

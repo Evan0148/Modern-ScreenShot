@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Controls;
+using ModernScreenShot.App.Editor;
 using ModernScreenShot.App.Services;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
@@ -60,7 +61,7 @@ public sealed class EffectsPanel : Grid
             Child = _previewImage,
             Margin = new Thickness(0, 0, 0, 8),
             MaxHeight = 240,
-            Background = Checkerboard(),
+            Background = AnnotationRenderer.CheckerboardBrush(),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
@@ -75,30 +76,6 @@ public sealed class EffectsPanel : Grid
         _presetCombo.SelectionChanged += (_, _) =>
         {
             if (!_syncing && _presetCombo.SelectedItem is PresetItem item) PresetSelected(item.Preset);
-        };
-    }
-
-    private static Brush Checkerboard()
-    {
-        var group = new DrawingGroup();
-        group.Children.Add(new GeometryDrawing
-        {
-            Brush = new SolidColorBrush(Color.FromRgb(0xE2, 0xE2, 0xE6)),
-            Geometry = new RectangleGeometry(new Rect(0, 0, 16, 16)),
-        });
-        var dark = new SolidColorBrush(Color.FromRgb(0xC2, 0xC2, 0xC8));
-        foreach (var (x, y) in new[] { (0, 0), (8, 8) })
-            group.Children.Add(new GeometryDrawing
-            {
-                Brush = dark,
-                Geometry = new RectangleGeometry(new Rect(x, y, 8, 8)),
-            });
-        return new DrawingBrush
-        {
-            Drawing = group,
-            Viewport = new Rect(0, 0, 16, 16),
-            ViewportUnits = BrushMappingMode.Absolute,
-            TileMode = TileMode.Tile,
         };
     }
 
