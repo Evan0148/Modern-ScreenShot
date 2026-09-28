@@ -88,12 +88,16 @@ public sealed class EffectsPanel : Grid
         _enabledCheck.Unchecked += (_, _) => Apply(s => s.Enabled = false);
         root.Children.Add(_enabledCheck);
 
-        var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        // WrapPanel: label + combo + two buttons overflow the 254px panel column at the default
+        // font, which clipped 删除预设 entirely — the row wraps instead.
+        var presetRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
         presetRow.Children.Add(new TextBlock { Text = L.Get("Effects.Preset"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
         presetRow.Children.Add(_presetCombo);
         _savePresetButton.Content = L.Get("Effects.SavePreset");
+        _savePresetButton.Margin = new Thickness(0, 4, 6, 0);
         _savePresetButton.Click += (_, _) => SaveUserPreset();
         _deletePresetButton.Content = L.Get("Effects.DeletePreset");
+        _deletePresetButton.Margin = new Thickness(0, 4, 0, 0);
         _deletePresetButton.Click += (_, _) => DeleteUserPreset();
         presetRow.Children.Add(_savePresetButton);
         presetRow.Children.Add(_deletePresetButton);
@@ -361,6 +365,27 @@ public sealed class EffectsPanel : Grid
 
     /// <summary>Called by the editor with the composited preview bitmap.</summary>
     public void SetPreview(BitmapSource image) => _previewImage.Source = image;
+
+    /// <summary>Diagnostic: whether a preview bitmap arrived (used by --render-editor verification).</summary>
+    public bool HasPreviewSource => _previewImage.Source is not null;
+
+    /// <summary>Diagnostic: flips dependent sections via the normal user event path
+    /// (tokens: gradient|solid|reflection|noshadow|noenabled).</summary>
+    internal void DiagnosticApplyFx(string? spec)
+    {
+        if (string.IsNullOrWhiteSpace(spec) || _settings is null) return;
+        foreach (var token in spec.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            switch (token.ToLowerInvariant())
+            {
+                case "gradient": _backgroundCombo.SelectedIndex = 2; break;
+                case "solid": _backgroundCombo.SelectedIndex = 1; break;
+                case "reflection": _reflectionCheck.IsChecked = true; break;
+                case "noshadow": _shadowCheck.IsChecked = false; break;
+                case "noenabled": _enabledCheck.IsChecked = false; break;
+            }
+        }
+    }
 
     private sealed record PresetItem(EffectPreset Preset)
     {

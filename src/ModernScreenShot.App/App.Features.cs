@@ -123,7 +123,6 @@ public partial class App
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            var exit = 0;
             try
             {
                 Window? win = null;
@@ -138,31 +137,72 @@ public partial class App
                     && tab >= 0 && tab < tc.Items.Count)
                 {
                     tc.SelectedIndex = tab;
-                    win.UpdateLayout();
                 }
-                // Render the WINDOW (its Background paint lives on the Window visual, not on Content —
-                // rendering Content alone yields a transparent backdrop).
-                double sx = 1, sy = 1;
-                try { var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(win); sx = dpi.DpiScaleX; sy = dpi.DpiScaleY; } catch { /* 96 dpi fallback */ }
-                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
-                    Math.Max(1, (int)Math.Round(win.ActualWidth * sx)),
-                    Math.Max(1, (int)Math.Round(win.ActualHeight * sy)),
-                    96 * sx, 96 * sy, System.Windows.Media.PixelFormats.Pbgra32);
-                rtb.Render(win);
-                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
-                using var fs = System.IO.File.Create(outPath);
-                enc.Save(fs);
-                Log.Info($"--render-{target}: wrote {outPath}");
+                // MSS_RENDER_W/H force a window size; MSS_RENDER_EDITOR_EFFECTS=1 opens the effects
+                // panel; MSS_RENDER_EDITOR_SELECT=1 selects the last annotation item;
+                // MSS_RENDER_EDITOR_TOOL=<name> activates a tool — editor property-panel states.
+                if (int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_W"), out var rw) && rw >= 200) win.Width = rw;
+                if (int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_H"), out var rh) && rh >= 200) win.Height = rh;
+                bool effectsRequested = false;
+                if (win is EditorWindow editorWindow)
+                {
+                    effectsRequested = Environment.GetEnvironmentVariable("MSS_RENDER_EDITOR_EFFECTS") == "1";
+                    editorWindow.DiagnosticPrepare(
+                        effectsRequested,
+                        Environment.GetEnvironmentVariable("MSS_RENDER_EDITOR_SELECT"),
+                        Environment.GetEnvironmentVariable("MSS_RENDER_EDITOR_TOOL"),
+                        Environment.GetEnvironmentVariable("MSS_RENDER_EDITOR_FX"));
+                }
+                win.UpdateLayout();
+                // The effects preview bitmap arrives via a 60ms debounce timer + background compose;
+                // without an extra delay the snapshot races it and shows an empty preview box.
+                var snapshotTimer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(effectsRequested ? 900 : 0),
+                };
+                snapshotTimer.Tick += (_, _) =>
+                {
+                    snapshotTimer.Stop();
+                    var exit = 0;
+                    try
+                    {
+                        SnapshotWindow(win!, target, outPath!);
+                        Log.Info($"--render-{target}: wrote {outPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"--render-{target} failed", ex);
+                        exit = 1;
+                    }
+                    Shutdown(exit);
+                };
+                snapshotTimer.Start();
             }
             catch (Exception ex)
             {
                 Log.Error($"--render-{target} failed", ex);
-                exit = 1;
+                Shutdown(1);
             }
-            Shutdown(exit);
         };
         timer.Start();
+    }
+
+    /// <summary>Renders the window visual itself to a PNG (its Background paint lives on the Window,
+    /// not on Content — rendering Content alone yields a transparent backdrop).</summary>
+    private static void SnapshotWindow(Window win, string target, string outPath)
+    {
+        win.UpdateLayout();
+        double sx = 1, sy = 1;
+        try { var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(win); sx = dpi.DpiScaleX; sy = dpi.DpiScaleY; } catch { /* 96 dpi fallback */ }
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+            Math.Max(1, (int)Math.Round(win.ActualWidth * sx)),
+            Math.Max(1, (int)Math.Round(win.ActualHeight * sy)),
+            96 * sx, 96 * sy, System.Windows.Media.PixelFormats.Pbgra32);
+        rtb.Render(win);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using var fs = System.IO.File.Create(outPath);
+        enc.Save(fs);
     }
 
     private static T? FindDescendant<T>(DependencyObject root) where T : class
@@ -462,7 +502,9 @@ public partial class App
             Services.GetRequiredService<ClipboardService>(), Services.GetRequiredService<ImageExporter>(),
             document,
             image => new PinWindow(image, Services.GetRequiredService<ImageExporter>(),
-                Services.GetRequiredService<ClipboardService>(), OpenEditorForImage, OpenDefaultSaveFolder));
+                Services.GetRequiredService<ClipboardService>(), OpenEditorForImage, OpenDefaultSaveFolder),
+            // size/position the editor on the monitor the capture came from (multi-monitor)
+            Services.GetRequiredService<MonitorService>());
         editor.Closed += OnEditorClosed;
         EditorWindows.Add(editor);
         editor.Show();

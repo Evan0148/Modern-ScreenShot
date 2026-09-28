@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Interop;
 using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Effects;
 using ModernScreenShot.App.Interop;
@@ -44,24 +45,27 @@ public partial class EditorWindow : Window
 
     private WrapPanel _palette = null!;
     private TextBox _hexBox = null!;
-    private Slider _thicknessSlider = null!, _opacitySlider = null!, _fontSizeSlider = null!, _strengthSlider = null!, _dimSlider = null!, _magZoomSlider = null!;
+    private Slider _thicknessSlider = null!, _opacitySlider = null!, _fontSizeSlider = null!, _strengthSlider = null!, _dimSlider = null!, _magZoomSlider = null!, _stepRadiusSlider = null!;
     private CheckBox _fillCheck = null!, _dashedCheck = null!, _boldCheck = null!;
     private ComboBox _mosaicModeCombo = null!, _spotShapeCombo = null!;
     private StackPanel _colorSection = null!, _strokeSection = null!, _fillSection = null!, _dashedSection = null!,
-        _textSection = null!, _mosaicSection = null!, _spotlightSection = null!, _magnifierSection = null!, _hintSection = null!;
+        _textSection = null!, _mosaicSection = null!, _spotlightSection = null!, _magnifierSection = null!, _hintSection = null!,
+        _stepSection = null!;
     private TextBlock _hintText = null!;
     private Button _undoButton = null!, _redoButton = null!, _deleteButton = null!, _frontButton = null!, _backButton = null!;
     private readonly Dictionary<Slider, DockPanel> _sliderRows = [];
     private Button _effectsButton = null!, _openFolderButton = null!;
+    private ScrollViewer _propertiesScroll = null!;
     private TextBlock _zoomLabel = null!, _statusLabel = null!;
     private EffectsPanel _effectsPanel = null!;
     private bool _effectsVisible;
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     private int _previewRunId;
     private string? _lastSavedPath;
+    private MonitorInfo? _targetMonitor;
 
     public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter,
-        AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null)
+        AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null, MonitorService? monitors = null)
     {
         InitializeComponent();
         _result = result;
@@ -72,10 +76,31 @@ public partial class EditorWindow : Window
         _pinFactory = pinFactory;
 
         var editor = settings.Current.Editor;
+        // Size to the monitor the capture came from: sizing against the primary work area overflows
+        // a smaller secondary screen. Without monitor info fall back to the primary work area.
         var wa = SystemParameters.WorkArea;
-        Width = Math.Min(1400, wa.Width * 0.92);
-        Height = Math.Min(920, wa.Height * 0.92);
+        var src = result.SourceRect;
+        if (monitors is { } svc)
+        {
+            _targetMonitor = src.IsEmpty
+                ? svc.GetCursorMonitor()
+                : svc.FromPoint(src.X + src.Width / 2, src.Y + src.Height / 2);
+            var m = _targetMonitor;
+            double scale = m.DpiX > 0 ? m.DpiX / 96.0 : 1.0;
+            wa = new Rect(m.WorkArea.X / scale, m.WorkArea.Y / scale,
+                m.WorkArea.Width / scale, m.WorkArea.Height / scale);
+        }
+        Width = Math.Min(1400, Math.Max(640, wa.Width * 0.92));
+        Height = Math.Min(920, Math.Max(420, wa.Height * 0.92));
         Title = L.Get("Editor.Title");
+        if (_targetMonitor is not null)
+        {
+            // CenterScreen always lands on the primary screen; place the window on the capture's
+            // monitor physically (SetWindowPos) — WPF Left/Top DIP mapping is unreliable on
+            // mixed-DPI multi-monitor setups.
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            SourceInitialized += (_, _) => MoveToCaptureMonitor();
+        }
 
         BuildCanvas(result, editor);
         BuildToolbar();
@@ -85,6 +110,22 @@ public partial class EditorWindow : Window
         _previewTimer.Tick += (_, _) => RenderPreview();
         _ready = true;
         UpdatePropertyPanel();
+    }
+
+    /// <summary>Physically centers the window on the capture's monitor (virtual-screen physical
+    /// pixels; the DIP size was derived from that monitor's own work area and DPI).</summary>
+    private void MoveToCaptureMonitor()
+    {
+        if (_targetMonitor is not { } m) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        double scale = m.DpiX > 0 ? m.DpiX / 96.0 : 1.0;
+        int w = (int)Math.Round(Width * scale);
+        int h = (int)Math.Round(Height * scale);
+        int x = m.WorkArea.X + Math.Max(0, (m.WorkArea.Width - w) / 2);
+        int y = m.WorkArea.Y + Math.Max(0, (m.WorkArea.Height - h) / 2);
+        NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
+            NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
     }
 
     // ---- construction ----
@@ -281,6 +322,13 @@ public partial class EditorWindow : Window
             item => { if (item is MagnifierItem m) m.Zoom = v / 10.0; }));
         root.Children.Add(_magnifierSection);
 
+        // Step number radius — without it the properties panel is empty for the Step tool.
+        _stepSection = Section(L.Get("Prop.Radius"));
+        _stepRadiusSlider = MakeSlider(_stepSection, 8, 48, editor.StepRadius, "{0:0}", v => ApplySlider(
+            () => _canvas.StepRadius = v,
+            item => { if (item is StepItem s) s.Radius = v; }));
+        root.Children.Add(_stepSection);
+
         // Hint
         _hintSection = Section(null);
         _hintText = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = SecondaryText() };
@@ -462,6 +510,7 @@ public partial class EditorWindow : Window
         SetVisible(_mosaicSection, tool is EditorTool.Mosaic or EditorTool.Blur);
         SetVisible(_spotlightSection, tool == EditorTool.Spotlight);
         SetVisible(_magnifierSection, tool == EditorTool.Magnifier);
+        SetVisible(_stepSection, tool == EditorTool.Step);
         SetVisible(_hintSection, tool is EditorTool.Select or EditorTool.Crop or EditorTool.Eraser);
         _hintText.Text = tool switch
         {
@@ -482,6 +531,7 @@ public partial class EditorWindow : Window
         SetVisible(_mosaicSection, item is MosaicItem);
         SetVisible(_spotlightSection, item is SpotlightItem);
         SetVisible(_magnifierSection, item is MagnifierItem);
+        SetVisible(_stepSection, item is StepItem);
         SetVisible(_hintSection, false);
         SyncControlValues(item);
     }
@@ -501,6 +551,7 @@ public partial class EditorWindow : Window
         _spotShapeCombo.SelectedIndex = item switch { SpotlightItem s when s.Elliptical => 1, _ => _canvas.SpotlightElliptical ? 1 : 0 };
         _dimSlider.Value = Math.Round((item switch { SpotlightItem s => s.DimOpacity, _ => _canvas.SpotlightDim }) * 100);
         _magZoomSlider.Value = Math.Round((item switch { MagnifierItem m => m.Zoom, _ => _canvas.MagnifierZoom }) * 10);
+        _stepRadiusSlider.Value = item switch { StepItem s => s.Radius, _ => _canvas.StepRadius };
         _syncingPanel = false;
     }
 
@@ -524,7 +575,9 @@ public partial class EditorWindow : Window
         DockPanel.SetDock(right, Dock.Right);
         panel.Children.Add(right);
 
-        var left = new StackPanel { Orientation = Orientation.Horizontal };
+        // WrapPanel: the action row overflows a single line at the min window width, which made
+        // Save As / Pin / Effects unreachable — it wraps instead. Docked-right status keeps its width.
+        var left = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         _undoButton = MakeToolButton(L.Get("Action.Undo"), (_, _) => _canvas.DoUndo());
         _redoButton = MakeToolButton(L.Get("Action.Redo"), (_, _) => _canvas.DoRedo());
         left.Children.Add(_undoButton);
@@ -706,8 +759,10 @@ public partial class EditorWindow : Window
         _effectsPanel.SettingsChanged += (_, _) => { _dirty = true; SchedulePreview(); };
         _canvas.DocumentChanged += (_, _) => SchedulePreview();
 
-        // Wrap the properties area in a grid so the two panels can be swapped.
+        // Wrap the properties area in a grid so the two panels can be swapped. The visibility
+        // swap lives in ToggleEffects — both children share one Grid cell and would overlap.
         var scroll = (ScrollViewer)PropertiesHost.Child;
+        _propertiesScroll = scroll;
         PropertiesHost.Child = null; // disconnect before re-parenting
         scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         var grid = new Grid();
@@ -721,6 +776,7 @@ public partial class EditorWindow : Window
     {
         _effectsVisible = !_effectsVisible;
         _effectsPanel.Visibility = _effectsVisible ? Visibility.Visible : Visibility.Collapsed;
+        _propertiesScroll.Visibility = _effectsVisible ? Visibility.Collapsed : Visibility.Visible;
         _effectsButton.FontWeight = _effectsVisible ? FontWeights.Bold : FontWeights.Normal;
         if (_effectsVisible) SchedulePreview();
     }
@@ -973,6 +1029,29 @@ public partial class EditorWindow : Window
     {
         if (_toolButtons.TryGetValue(tool, out var rb)) rb.IsChecked = true;
     }
+
+    /// <summary>Diagnostic-only state for --render-editor snapshots: opens the effects panel,
+    /// selects an annotation item by index (negative = from the end) and/or activates a tool.
+    /// <paramref name="fxSpec"/> is a comma list for the effects panel: gradient|solid|reflection|noshadow|noenabled.</summary>
+    internal void DiagnosticPrepare(bool effects, string? selectSpec, string? tool, string? fxSpec)
+    {
+        if (tool is { Length: > 0 } && Enum.TryParse<EditorTool>(tool, true, out var parsed)) SetTool(parsed);
+        if (int.TryParse(selectSpec, out var idx) && _canvas.Document.Items.Count > 0)
+        {
+            var items = _canvas.Document.Items;
+            var item = idx < 0 ? items[^1] : items[Math.Min(idx, items.Count - 1)];
+            SetTool(EditorTool.Select);
+            _canvas.Select(item);
+        }
+        if (effects)
+        {
+            ToggleEffects();
+            _effectsPanel.DiagnosticApplyFx(fxSpec);
+        }
+    }
+
+    /// <summary>Diagnostic: whether the effects panel received a preview bitmap.</summary>
+    internal bool EffectsPreviewPresent => _effectsPanel.HasPreviewSource;
 
     // ---- lifecycle ----
 

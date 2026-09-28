@@ -307,6 +307,11 @@ public sealed class AnnotationCanvas : FrameworkElement
     {
         _doc = doc;
         _selected = null;
+        // Docs created programmatically (or saved before text measuring existed) carry no measured
+        // size; the GetBounds FontSize fallback then collapses selection handles and hit-testing
+        // to a tiny box at the text origin. Measure on adoption; stored sizes stay untouched.
+        foreach (var item in doc.Items)
+            if (item is TextItem { MeasuredWidth: <= 0 } t) MeasureTextItem(t);
         RecomputeMosaic();
         Width = doc.ImageWidth;
         Height = doc.ImageHeight;
