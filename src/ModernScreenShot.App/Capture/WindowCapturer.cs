@@ -31,8 +31,19 @@ public sealed class WindowCapturer
         if (image is null)
         {
             Log.Warn($"PrintWindow produced no content for '{title}' (0x{hwnd:X}); falling back to screen capture.");
-            var onScreen = frame.IsEmpty ? windowRect : frame;
+            var onScreen = (frame.IsEmpty ? windowRect : frame)
+                .Intersect(GetVirtualScreen());
+            if (onScreen.IsEmpty)
+            {
+                Log.Warn($"'{title}' is outside the visible desktop; no screen fallback possible.");
+                return null;
+            }
             image = _screen.Capture(onScreen, includeCursor: false);
+            if (IsBlank(image))
+            {
+                Log.Warn($"Screen fallback for '{title}' is blank; discarding.");
+                return null;
+            }
         }
 
         if (transparentCorners && ShouldRoundCorners(hwnd))
@@ -102,6 +113,13 @@ public sealed class WindowCapturer
             return null;
         }
     }
+
+    /// <summary>Virtual-screen bounds in physical pixels (may have negative origin).</summary>
+    private static PixelRect GetVirtualScreen() => new(
+        NativeMethods.GetSystemMetrics(NativeMethods.SM_XVIRTUALSCREEN),
+        NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN),
+        NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN),
+        NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN));
 
     /// <summary>True if every sampled pixel is pure black (typical PrintWindow failure for GPU surfaces).</summary>
     private static bool IsBlank(PixelBuffer img)

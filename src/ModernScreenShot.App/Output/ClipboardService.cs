@@ -37,8 +37,15 @@ public sealed class ClipboardService
                     Thread.Sleep(50);
                     continue;
                 }
-                ok = NativeMethods.SetClipboardData(NativeMethods.CF_DIBV5, ToHGlobal(dibV5)) != IntPtr.Zero
-                     && NativeMethods.SetClipboardData(PngFormat, ToHGlobal(png)) != IntPtr.Zero;
+                // SetClipboardData transfers ownership on success; on failure we still own the
+                // handle and must free it to avoid leaking GMEM_MOVEABLE memory per attempt.
+                var hDib = ToHGlobal(dibV5);
+                var hPng = ToHGlobal(png);
+                bool dibOk = NativeMethods.SetClipboardData(NativeMethods.CF_DIBV5, hDib) != IntPtr.Zero;
+                if (!dibOk) NativeMethods.GlobalFree(hDib);
+                bool pngOk = NativeMethods.SetClipboardData(PngFormat, hPng) != IntPtr.Zero;
+                if (!pngOk) NativeMethods.GlobalFree(hPng);
+                ok = dibOk && pngOk;
                 if (!ok)
                     Log.Warn($"SetClipboardData failed (error {Marshal.GetLastWin32Error()}).");
             }
@@ -94,7 +101,7 @@ public sealed class ClipboardService
         WriteInt32(data, 48, 0x000000FF);                      // bV5BlueMask
         WriteInt32(data, 52, unchecked((int)0xFF000000));      // bV5AlphaMask
         WriteInt32(data, 56, 0x73524742);                      // bV5CSType = 'sRGB'
-        WriteInt32(data, 104, 4);                              // bV5Intent = LCS_GM_IMAGES
+        WriteInt32(data, 108, 4);                              // bV5Intent = LCS_GM_IMAGES
 
         // Flip rows bottom-up so the DIB matches the classic layout.
         for (int y = 0; y < image.Height; y++)

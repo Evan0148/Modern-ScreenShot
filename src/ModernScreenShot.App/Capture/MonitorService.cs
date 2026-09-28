@@ -33,7 +33,11 @@ public sealed class MonitorService
     public MonitorInfo FromPoint(int x, int y)
     {
         var h = NativeMethods.MonitorFromPoint(new POINT(x, y), NativeMethods.MONITOR_DEFAULTTONEAREST);
-        return Describe(h) ?? GetMonitors().First();
+        if (Describe(h) is { } info) return info;
+        var monitors = GetMonitors();
+        return monitors.Count > 0
+            ? monitors[0]
+            : throw new InvalidOperationException("No display monitors were detected.");
     }
 
     public MonitorInfo GetCursorMonitor()

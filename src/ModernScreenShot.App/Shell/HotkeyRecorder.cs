@@ -95,11 +95,14 @@ public sealed class HotkeyRecorder : Button
             {
                 int vk = KeyInterop.VirtualKeyFromKey(key);
                 if (vk == 0) return;
-                Capture(new HotkeyBinding
+                int modifiers = ToWin32Modifiers(Keyboard.Modifiers);
+                if (modifiers == 0)
                 {
-                    Modifiers = ToWin32Modifiers(Keyboard.Modifiers),
-                    VirtualKey = vk,
-                });
+                    // A bare key would be swallowed system-wide once registered; keep listening.
+                    Content = PreviewText(Keyboard.Modifiers);
+                    return;
+                }
+                Capture(new HotkeyBinding { Modifiers = modifiers, VirtualKey = vk });
                 return;
             }
         }

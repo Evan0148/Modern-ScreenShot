@@ -31,6 +31,7 @@ internal sealed class DibSection : IDisposable
             _bitmap = NativeMethods.CreateDIBSection(screenDc, ref bmi, NativeMethods.DIB_RGB_COLORS, out var bits, IntPtr.Zero, 0);
             if (_bitmap == IntPtr.Zero || bits == IntPtr.Zero)
             {
+                if (_bitmap != IntPtr.Zero) NativeMethods.DeleteObject(_bitmap);
                 NativeMethods.DeleteDC(Dc);
                 throw new InvalidOperationException($"CreateDIBSection failed for {width}x{height}.");
             }

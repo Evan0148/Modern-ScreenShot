@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Controls;
+using ModernScreenShot.App.Services;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
 using L = ModernScreenShot.App.Localization.LocalizationService;
@@ -43,6 +44,8 @@ public sealed class EffectsPanel : Grid
     private readonly ComboBox _backgroundCombo = new() { MinWidth = 90 };
 
     private Slider _cornerRadius = null!, _framePadding = null!, _gradientAngle = null!, _borderThickness = null!;
+    private Slider _shadowBlur = null!, _shadowSpread = null!, _shadowAngle = null!, _shadowDistance = null!, _shadowOpacity = null!;
+    private Slider _reflHeight = null!, _reflStartOpacity = null!, _reflEndOpacity = null!, _reflGap = null!, _reflBlur = null!;
 
     /// <summary>Any setting changed; the editor re-renders the preview (debounced).</summary>
     public event EventHandler? SettingsChanged;
@@ -123,11 +126,11 @@ public sealed class EffectsPanel : Grid
         _shadowSection = Section(root, L.Get("Effects.Shadow"), _shadowCheck);
         _shadowCheck.Checked += (_, _) => Apply(s => s.Shadow.Enabled = true);
         _shadowCheck.Unchecked += (_, _) => Apply(s => s.Shadow.Enabled = false);
-        LabeledSlider(_shadowSection, L.Get("Effects.Blur"), 0, 100, "{0:0}", v => Apply(s => s.Shadow.BlurRadius = v));
-        LabeledSlider(_shadowSection, L.Get("Effects.Spread"), 0, 50, "{0:0}", v => Apply(s => s.Shadow.Spread = v));
-        LabeledSlider(_shadowSection, L.Get("Effects.Angle"), 0, 360, "{0:0}°", v => Apply(s => s.Shadow.Angle = v));
-        LabeledSlider(_shadowSection, L.Get("Effects.Distance"), 0, 100, "{0:0}", v => Apply(s => s.Shadow.Distance = v));
-        LabeledSlider(_shadowSection, L.Get("Effects.Opacity"), 0, 100, "{0:0}%", v => Apply(s => s.Shadow.Opacity = v / 100.0));
+        _shadowBlur = LabeledSlider(_shadowSection, L.Get("Effects.Blur"), 0, 100, "{0:0}", v => Apply(s => s.Shadow.BlurRadius = v));
+        _shadowSpread = LabeledSlider(_shadowSection, L.Get("Effects.Spread"), 0, 50, "{0:0}", v => Apply(s => s.Shadow.Spread = v));
+        _shadowAngle = LabeledSlider(_shadowSection, L.Get("Effects.Angle"), 0, 360, "{0:0}°", v => Apply(s => s.Shadow.Angle = v));
+        _shadowDistance = LabeledSlider(_shadowSection, L.Get("Effects.Distance"), 0, 100, "{0:0}", v => Apply(s => s.Shadow.Distance = v));
+        _shadowOpacity = LabeledSlider(_shadowSection, L.Get("Effects.Opacity"), 0, 100, "{0:0}%", v => Apply(s => s.Shadow.Opacity = v / 100.0));
         ColorRow(_shadowSection, L.Get("Effects.Color"), _shadowColor);
         _shadowColor.ColorCommitted += (_, _) => Apply(s => s.Shadow.Color = _shadowColor.HexColor);
 
@@ -135,11 +138,11 @@ public sealed class EffectsPanel : Grid
         _reflectionSection = Section(root, L.Get("Effects.Reflection"), _reflectionCheck);
         _reflectionCheck.Checked += (_, _) => Apply(s => s.Reflection.Enabled = true);
         _reflectionCheck.Unchecked += (_, _) => Apply(s => s.Reflection.Enabled = false);
-        LabeledSlider(_reflectionSection, L.Get("Effects.Height"), 5, 100, "{0:0}%", v => Apply(s => s.Reflection.Height = v / 100.0));
-        LabeledSlider(_reflectionSection, L.Get("Effects.StartOpacity"), 0, 100, "{0:0}%", v => Apply(s => s.Reflection.StartOpacity = v / 100.0));
-        LabeledSlider(_reflectionSection, L.Get("Effects.EndOpacity"), 0, 100, "{0:0}%", v => Apply(s => s.Reflection.EndOpacity = v / 100.0));
-        LabeledSlider(_reflectionSection, L.Get("Effects.Gap"), 0, 50, "{0:0}", v => Apply(s => s.Reflection.Gap = v));
-        LabeledSlider(_reflectionSection, L.Get("Effects.Blur"), 0, 20, "{0:0}", v => Apply(s => s.Reflection.Blur = v));
+        _reflHeight = LabeledSlider(_reflectionSection, L.Get("Effects.Height"), 5, 100, "{0:0}%", v => Apply(s => s.Reflection.Height = v / 100.0));
+        _reflStartOpacity = LabeledSlider(_reflectionSection, L.Get("Effects.StartOpacity"), 0, 100, "{0:0}%", v => Apply(s => s.Reflection.StartOpacity = v / 100.0));
+        _reflEndOpacity = LabeledSlider(_reflectionSection, L.Get("Effects.EndOpacity"), 0, 100, "{0:0}%", v => Apply(s => s.Reflection.EndOpacity = v / 100.0));
+        _reflGap = LabeledSlider(_reflectionSection, L.Get("Effects.Gap"), 0, 50, "{0:0}", v => Apply(s => s.Reflection.Gap = v));
+        _reflBlur = LabeledSlider(_reflectionSection, L.Get("Effects.Blur"), 0, 20, "{0:0}", v => Apply(s => s.Reflection.Blur = v));
 
         // Frame
         var frameSection = Section(root, L.Get("Effects.Frame"), null);
@@ -209,6 +212,8 @@ public sealed class EffectsPanel : Grid
             valueLabel.Text = string.Format(System.Globalization.CultureInfo.CurrentCulture, format, e.NewValue);
             if (!_syncing) apply(e.NewValue);
         };
+        // A bind value equal to the minimum raises no ValueChanged; seed the label so it is never blank.
+        valueLabel.Text = string.Format(System.Globalization.CultureInfo.CurrentCulture, format, slider.Value);
         DockPanel.SetDock(valueLabel, Dock.Right);
         row.Children.Add(valueLabel);
         row.Children.Add(slider);
@@ -259,18 +264,18 @@ public sealed class EffectsPanel : Grid
         var s = _settings;
         _enabledCheck.IsChecked = s.Enabled;
         _shadowCheck.IsChecked = s.Shadow.Enabled;
-        SetSliderValue(_shadowSection, L.Get("Effects.Blur"), s.Shadow.BlurRadius);
-        SetSliderValue(_shadowSection, L.Get("Effects.Spread"), s.Shadow.Spread);
-        SetSliderValue(_shadowSection, L.Get("Effects.Angle"), s.Shadow.Angle);
-        SetSliderValue(_shadowSection, L.Get("Effects.Distance"), s.Shadow.Distance);
-        SetSliderValue(_shadowSection, L.Get("Effects.Opacity"), Math.Round(s.Shadow.Opacity * 100));
+        _shadowBlur.Value = s.Shadow.BlurRadius;
+        _shadowSpread.Value = s.Shadow.Spread;
+        _shadowAngle.Value = s.Shadow.Angle;
+        _shadowDistance.Value = s.Shadow.Distance;
+        _shadowOpacity.Value = Math.Round(s.Shadow.Opacity * 100);
         _shadowColor.SetColor(s.Shadow.Color);
         _reflectionCheck.IsChecked = s.Reflection.Enabled;
-        SetSliderValue(_reflectionSection, L.Get("Effects.Height"), Math.Round(s.Reflection.Height * 100));
-        SetSliderValue(_reflectionSection, L.Get("Effects.StartOpacity"), Math.Round(s.Reflection.StartOpacity * 100));
-        SetSliderValue(_reflectionSection, L.Get("Effects.EndOpacity"), Math.Round(s.Reflection.EndOpacity * 100));
-        SetSliderValue(_reflectionSection, L.Get("Effects.Gap"), s.Reflection.Gap);
-        SetSliderValue(_reflectionSection, L.Get("Effects.Blur"), s.Reflection.Blur);
+        _reflHeight.Value = Math.Round(s.Reflection.Height * 100);
+        _reflStartOpacity.Value = Math.Round(s.Reflection.StartOpacity * 100);
+        _reflEndOpacity.Value = Math.Round(s.Reflection.EndOpacity * 100);
+        _reflGap.Value = s.Reflection.Gap;
+        _reflBlur.Value = s.Reflection.Blur;
         _cornerRadius.Value = s.Frame.CornerRadius;
         _framePadding.Value = s.Frame.Padding;
         _borderThickness.Value = s.Frame.BorderThickness;
@@ -282,21 +287,6 @@ public sealed class EffectsPanel : Grid
         _gradientAngle.Value = s.Frame.GradientAngle;
         _syncing = false;
         UpdateDependentVisibility();
-    }
-
-    private static void SetSliderValue(StackPanel section, string label, double value)
-    {
-        // Slider rows are laid out as [label TextBlock] then [DockPanel { slider, value label }].
-        var items = section.Children.Cast<UIElement>().ToList();
-        for (int i = 0; i < items.Count - 1; i++)
-        {
-            if (items[i] is TextBlock { Text: { } t } && t == label && items[i + 1] is DockPanel row)
-            {
-                var slider = row.Children.OfType<Slider>().FirstOrDefault();
-                if (slider is not null) slider.Value = value;
-                return;
-            }
-        }
     }
 
     private void UpdateDependentVisibility()
@@ -327,16 +317,30 @@ public sealed class EffectsPanel : Grid
         if (string.IsNullOrWhiteSpace(name)) return;
         _store.Current.UserPresets.RemoveAll(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
         _store.Current.UserPresets.Add(new EffectPreset { Name = name, IsBuiltIn = false, Settings = _settings.Clone() });
-        _store.Save();
+        SavePresetsOrLog();
         RebindPresets(selectMatching: true);
     }
 
     private void DeleteUserPreset()
     {
         if (_store is null || _presetCombo.SelectedItem is not PresetItem { Preset.IsBuiltIn: false } item) return;
-        _store.Current.UserPresets.RemoveAll(p => p.Name == item.Preset.Name);
-        _store.Save();
+        _store.Current.UserPresets.RemoveAll(p => string.Equals(p.Name, item.Preset.Name, StringComparison.OrdinalIgnoreCase));
+        SavePresetsOrLog();
         RebindPresets(selectMatching: false);
+    }
+
+    private void SavePresetsOrLog()
+    {
+        if (_store is null) return;
+        try
+        {
+            _store.Save();
+        }
+        catch (Exception ex)
+        {
+            // Keep the in-memory list usable; the divergence from disk is at least logged.
+            Log.Error("Persisting user effect presets failed", ex);
+        }
     }
 
     private void PresetSelected(EffectPreset preset)

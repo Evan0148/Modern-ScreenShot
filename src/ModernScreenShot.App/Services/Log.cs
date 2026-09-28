@@ -8,8 +8,10 @@ namespace ModernScreenShot.App.Services;
 public static class Log
 {
     private const long MaxBytes = 2 * 1024 * 1024;
+    private const int MaxConsecutiveFailures = 10;
     private static readonly object Gate = new();
     private static bool _broken;
+    private static int _consecutiveFailures;
 
     public static string FilePath { get; } = Path.Combine(AppPaths.LogDir, "app.log");
 
@@ -41,12 +43,18 @@ public static class Log
                     File.Move(FilePath, old, overwrite: true);
                 }
                 File.AppendAllText(FilePath, line, Encoding.UTF8);
+                _consecutiveFailures = 0;
             }
             catch (Exception ioEx) when (ioEx is IOException or UnauthorizedAccessException)
             {
-                // The log itself is unavailable; stop trying to avoid repeated failures and report to the debugger.
-                _broken = true;
-                System.Diagnostics.Debug.WriteLine("Log disabled: " + ioEx.Message);
+                // A transient sharing violation (AV scan, --smoke alongside the app) must not kill
+                // logging forever; only give up after repeated consecutive failures.
+                _consecutiveFailures++;
+                if (_consecutiveFailures >= MaxConsecutiveFailures)
+                {
+                    _broken = true;
+                    System.Diagnostics.Debug.WriteLine($"Log disabled after {_consecutiveFailures} failures: {ioEx.Message}");
+                }
             }
         }
     }

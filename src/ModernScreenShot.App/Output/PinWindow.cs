@@ -39,7 +39,9 @@ public sealed class PinWindow : Window
         ShowInTaskbar = false;
         ShowActivated = false;
         ResizeMode = ResizeMode.NoResize;
-        SizeToContent = SizeToContent.WidthAndHeight;
+        // Manual sizing: WidthAndHeight would let the content dictate the window size and defeat
+        // both the fit-to-work-area computation below and the wheel zoom in OnWheel.
+        SizeToContent = SizeToContent.Manual;
 
         var workArea = SystemParameters.WorkArea;
         double dipW = image.Width, dipH = image.Height;

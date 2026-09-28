@@ -64,9 +64,12 @@ public sealed class HistoryWindow : Window
         root.Children.Add(scroll);
         Content = root;
 
-        store.Changed += (_, _) => Dispatcher.BeginInvoke(Refresh);
+        store.Changed += OnStoreChanged;
         Loaded += (_, _) => Refresh();
+        Closed += (_, _) => store.Changed -= OnStoreChanged; // HistoryStore outlives this window; without this every open/close leaks the whole grid
     }
+
+    private void OnStoreChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(Refresh);
 
     private Button MakeButton(string text, RoutedEventHandler onClick)
     {
@@ -102,7 +105,8 @@ public sealed class HistoryWindow : Window
 
         var text = new TextBlock
         {
-            Text = entry.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") + (string.IsNullOrEmpty(entry.WindowTitle) ? "" : $"\n{entry.WindowTitle}"),
+            Text = entry.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+                   + (string.IsNullOrEmpty(entry.WindowTitle) ? "" : $"\n{entry.WindowTitle}"),
             TextAlignment = TextAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             FontSize = 11,

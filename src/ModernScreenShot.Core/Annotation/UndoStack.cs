@@ -44,6 +44,7 @@ public sealed class UndoStack
     {
         if (!CanRedo) return null;
         _undo.Add(Serialize(current));
+        if (_undo.Count > _limit) _undo.RemoveAt(0); // alternate undo/redo must not grow unboundedly
         var doc = Deserialize(_redo.Pop());
         Changed?.Invoke(this, EventArgs.Empty);
         return doc;

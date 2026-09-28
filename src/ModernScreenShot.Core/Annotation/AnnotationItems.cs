@@ -44,15 +44,6 @@ public abstract class AnnotationItem
 
     /// <summary>Translate the item by (dx, dy).</summary>
     public abstract void Move(double dx, double dy);
-
-    public AnnotationItem CloneItem()
-    {
-        var c = (AnnotationItem)MemberwiseClone();
-        c.DeepCopyFrom(this);
-        return c;
-    }
-
-    protected virtual void DeepCopyFrom(AnnotationItem source) { }
 }
 
 /// <summary>Items defined by a rectangle (shape, mosaic, spotlight, text box area...).</summary>
@@ -110,10 +101,7 @@ public class PenItem : AnnotationItem
     {
         for (int i = 0; i < Points.Count; i++) Points[i] = new PointD(Points[i].X + dx, Points[i].Y + dy);
     }
-
-    protected override void DeepCopyFrom(AnnotationItem source) => Points = [.. ((PenItem)source).Points];
 }
-
 /// <summary>Semi-transparent wide stroke rendered with multiply-like appearance.</summary>
 public sealed class HighlighterItem : PenItem
 {

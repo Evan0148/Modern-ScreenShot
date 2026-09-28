@@ -30,6 +30,8 @@ public partial class SettingsWindow : Window
     private readonly Dictionary<string, HotkeyRecorder> _recorders = [];
     private bool _loading = true;
     private bool _wasShown;
+    private bool _syncingLanguage;
+    private bool _revertingAutostart;
 
     public SettingsWindow(SettingsStore settings, LocalizationService localization,
         HotkeyService? hotkeys, Action<string>? notifyConflict)
@@ -179,7 +181,7 @@ public partial class SettingsWindow : Window
 
     private void OnLanguageSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_loading) return;
+        if (_loading || _syncingLanguage) return;
         string language = LanguageBox.SelectedIndex switch
         {
             1 => LocalizationService.Chinese,
@@ -212,7 +214,7 @@ public partial class SettingsWindow : Window
 
     private void OnStartWithWindowsChanged(object sender, RoutedEventArgs e)
     {
-        if (_loading) return;
+        if (_loading || _revertingAutostart) return;
         bool enable = StartWithWindowsBox.IsChecked == true;
         try
         {
@@ -235,7 +237,9 @@ public partial class SettingsWindow : Window
         catch (Exception ex)
         {
             Log.Error("Toggling start-with-Windows failed", ex);
+            _revertingAutostart = true;
             StartWithWindowsBox.IsChecked = _settings.Current.StartWithWindows;
+            _revertingAutostart = false;
         }
     }
 
@@ -285,6 +289,16 @@ public partial class SettingsWindow : Window
             if (_conflictMarks.TryGetValue(action, out var mark)) mark.Text = L.Get("Settings.Conflict");
         }
         RefreshAboutTexts();
+        // The language may have been changed elsewhere (e.g. tray menu) while this window is open;
+        // without this sync, OK would write the stale combo value back and revert that choice.
+        _syncingLanguage = true;
+        LanguageBox.SelectedIndex = _settings.Current.Language switch
+        {
+            LocalizationService.Chinese => 1,
+            LocalizationService.English => 2,
+            _ => 0,
+        };
+        _syncingLanguage = false;
     }
 
     // ---- persistence ----

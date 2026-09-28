@@ -40,9 +40,10 @@ public sealed class AnnotationCanvas : FrameworkElement
 
     private AnnotationDocument _doc;
     private readonly PixelBuffer _baseBuffer;
-    private readonly PixelBuffer _mosaicPristine;
+    private PixelBuffer? _mosaicPristine;
     private PixelBuffer? _mosaicBuffer;
     private BitmapSource? _mosaicSource;
+    private DateTime _lastMosaicRecompute = DateTime.MinValue;
 
     private CanvasMode _mode = CanvasMode.Idle;
     private AnnotationItem? _preview;
@@ -61,7 +62,6 @@ public sealed class AnnotationCanvas : FrameworkElement
     public AnnotationCanvas(PixelBuffer baseImage)
     {
         _baseBuffer = baseImage;
-        _mosaicPristine = baseImage.Clone();
         BaseImage = baseImage.ToBitmapSource();
         _doc = new AnnotationDocument { ImageWidth = baseImage.Width, ImageHeight = baseImage.Height };
         Width = baseImage.Width;
@@ -76,7 +76,6 @@ public sealed class AnnotationCanvas : FrameworkElement
     public int ImageHeight => _doc.ImageHeight;
     public double Zoom { get; private set; } = 1;
     public AnnotationItem? Selected => _selected;
-    public bool HasCropDraft => _cropDraft is not null;
     public ScrollViewer? ScrollOwner { get; set; }
 
     public event EventHandler? DocumentChanged;
@@ -165,7 +164,13 @@ public sealed class AnnotationCanvas : FrameworkElement
     public void ApplyCrop()
     {
         if (_cropDraft is not { } draft) return;
-        if (draft.Width < 4 || draft.Height < 4) { _cropDraft = null; InvalidateVisual(); return; }
+        if (draft.Width < 4 || draft.Height < 4)
+        {
+            _cropDraft = null;
+            _pendingSnapshot = null; // no change happened
+            InvalidateVisual();
+            return;
+        }
         BeginEdit();
         _doc.Crop = draft;
         _cropDraft = null;
@@ -178,6 +183,7 @@ public sealed class AnnotationCanvas : FrameworkElement
         if (_cropDraft is not null)
         {
             _cropDraft = null;
+            _pendingSnapshot = null; // the pre-draft snapshot must not leak into the next commit
             InvalidateVisual();
             return;
         }
@@ -212,6 +218,14 @@ public sealed class AnnotationCanvas : FrameworkElement
                 _mode = CanvasMode.Idle;
                 InvalidateVisual();
                 return;
+        }
+        if (_cropDraft is not null && Tool != EditorTool.Crop)
+        {
+            // The draft outlived the crop tool (tool was switched after releasing the mouse);
+            // otherwise it would stay on screen forever and Esc could not dismiss it.
+            _cropDraft = null;
+            _pendingSnapshot = null;
+            InvalidateVisual();
         }
         if (Tool == EditorTool.Crop)
         {
@@ -267,10 +281,19 @@ public sealed class AnnotationCanvas : FrameworkElement
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(text) && existing.Text == text) return;
+            if (existing.Text == text) return;
             BeginEdit();
-            existing.Text = text;
-            MeasureTextItem(existing);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                // An emptied text item is invisible but would still be selectable and renumbered; remove it.
+                _doc.Items.Remove(existing);
+                if (_selected == existing) Select(null);
+            }
+            else
+            {
+                existing.Text = text;
+                MeasureTextItem(existing);
+            }
             CommitEdit();
         }
     }
@@ -328,8 +351,10 @@ public sealed class AnnotationCanvas : FrameworkElement
         {
             _mosaicSource = null;
             _mosaicBuffer = null;
+            _mosaicPristine = null;
             return;
         }
+        _mosaicPristine ??= _baseBuffer.Clone();
         _mosaicBuffer ??= _baseBuffer.Clone();
         Array.Copy(_mosaicPristine.Data, _mosaicBuffer.Data, _mosaicPristine.Data.Length);
         var full = new PixelRect(0, 0, ImageWidth, ImageHeight);
@@ -341,6 +366,17 @@ public sealed class AnnotationCanvas : FrameworkElement
             else Mosaic.Blur(_mosaicBuffer, r, m.Strength);
         }
         _mosaicSource = _mosaicBuffer.ToBitmapSource();
+    }
+
+    /// <summary>
+    /// Mosaic preview during item drags: each recompute copies the full image and re-runs the pixel
+    /// algorithms, so throttle to ~25fps; OnMouseUp performs the final exact pass.
+    /// </summary>
+    private void RecomputeMosaicThrottled()
+    {
+        if ((DateTime.UtcNow - _lastMosaicRecompute).TotalMilliseconds < 40) return;
+        _lastMosaicRecompute = DateTime.UtcNow;
+        RecomputeMosaic();
     }
 
     // ---- rendering ----
@@ -594,7 +630,8 @@ public sealed class AnnotationCanvas : FrameworkElement
             item.StrokeThickness = StrokeThickness;
     }
 
-    private static string FillColorFor(string stroke)
+    /// <summary>Fill color derived from the stroke color (40-alpha variant).</summary>
+    public static string FillColorFor(string stroke)
     {
         if (PixelColor.TryParseHex(stroke, out var c))
             return new PixelColor(0x40, c.R, c.G, c.B).ToHex();
@@ -671,7 +708,7 @@ public sealed class AnnotationCanvas : FrameworkElement
                 {
                     m.Move(img.X - _lastPoint.X, img.Y - _lastPoint.Y);
                     _lastPoint = img;
-                    if (m is MosaicItem) RecomputeMosaic();
+                    if (m is MosaicItem) RecomputeMosaicThrottled();
                 }
                 break;
             case CanvasMode.Resizing:
@@ -749,7 +786,7 @@ public sealed class AnnotationCanvas : FrameworkElement
                 l.End = new PointD(_resizeAnchor.Right + d.X, _resizeAnchor.Bottom + d.Y);
                 break;
         }
-        if (_selected is MosaicItem) RecomputeMosaic();
+        if (_selected is MosaicItem) RecomputeMosaicThrottled();
     }
 
     private static (double X, double Y, double W, double H) NewEdges(RectD a, CanvasHandle h, PointD d)
@@ -797,6 +834,7 @@ public sealed class AnnotationCanvas : FrameworkElement
                 CommitPreview();
                 break;
             case CanvasMode.Moving or CanvasMode.Resizing:
+                if (_selected is MosaicItem) { _lastMosaicRecompute = DateTime.MinValue; RecomputeMosaic(); }
                 CommitEdit();
                 break;
             case CanvasMode.CropDraft or CanvasMode.CropResize:
@@ -823,6 +861,7 @@ public sealed class AnnotationCanvas : FrameworkElement
             PenItem pen => pen.Points.Count >= 2,
             LineItem l => MathHypot(l.End.X - l.Start.X, l.End.Y - l.Start.Y) >= 2 / Zoom,
             BoxItem b => b.Rect.Width >= 2 / Zoom && b.Rect.Height >= 2 / Zoom,
+            MagnifierItem m => m.SourceRect.Width >= 2 / Zoom && m.SourceRect.Height >= 2 / Zoom,
             _ => false,
         };
         if (valid)

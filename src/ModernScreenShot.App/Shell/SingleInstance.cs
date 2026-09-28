@@ -100,6 +100,7 @@ public sealed class SingleInstance : IDisposable
             catch (Exception ex)
             {
                 Log.Warn($"Single-instance pipe error: {ex.Message}");
+                Thread.Sleep(500); // a persistent failure (squatted pipe name, ACL) must not hot-spin this loop
             }
         }
         Log.Info("Single-instance listener stopped.");

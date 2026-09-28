@@ -118,10 +118,22 @@ internal sealed class OverlaySession
 
         for (int i = 0; i < monitors.Count; i++)
             _windows.Add(new OverlayWindow(this, monitors[i], FrozenSource, active[i]));
-        foreach (var w in _windows) w.Show();
 
+        // The finished-callback must exist before the first window is shown: a session-ending event
+        // (e.g. an external WM_CLOSE) can fire between Show() and PushFrame, and would otherwise
+        // leave the nested pump below running forever.
         var frame = new DispatcherFrame();
         _finished = () => frame.Continue = false;
+        try
+        {
+            foreach (var w in _windows) w.Show();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Showing the overlay windows failed", ex);
+            EndSession(null);
+            return null;
+        }
         Dispatcher.PushFrame(frame);
         return _outcome;
     }
@@ -138,6 +150,10 @@ internal sealed class OverlaySession
                 _hover = _windowEnum.HitTest(p.X, p.Y, includeChildren: true);
                 break;
             case OverlayState.Dragging:
+                UpdateDrag(p);
+                break;
+            case OverlayState.Selected when _drag is DragAction.Move or DragAction.Resize:
+                // Handle/body presses from OnLeftDown set _drag while staying in Selected.
                 UpdateDrag(p);
                 break;
         }
@@ -236,7 +252,7 @@ internal sealed class OverlaySession
                 if (_state == OverlayState.Selected && !_selection.IsEmpty && Mode == CaptureMode.Region)
                     Confirm(OverlayIntent.Edit);
                 return true;
-            case Key.C when MagnifierEnabled && _cursorValid:
+            case Key.C when MagnifierEnabled && _cursorValid && Keyboard.Modifiers == ModifierKeys.None:
                 CopyCursorColor();
                 InvalidateAll();
                 return true;

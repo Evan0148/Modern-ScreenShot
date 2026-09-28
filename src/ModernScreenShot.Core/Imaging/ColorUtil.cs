@@ -12,8 +12,6 @@ public static class ColorUtil
             (byte)Math.Round(a.B + (b.B - a.B) * t));
     }
 
-    public static PixelColor WithAlpha(PixelColor c, byte a) => c with { A = a };
-
     /// <summary>h in [0,360), s and v in [0,1].</summary>
     public static (double h, double s, double v) ToHsv(PixelColor c)
     {

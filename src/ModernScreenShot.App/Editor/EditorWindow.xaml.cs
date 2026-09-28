@@ -33,10 +33,10 @@ public partial class EditorWindow : Window
     private AnnotationCanvas _canvas = null!;
 
     private bool _dirty;
-    private bool _exported;
     private bool _ready;
     private bool _syncingPanel;
     private bool _panelDirty;
+    private bool _sliderMouseActive;
     private TextBox? _textOverlay;
     private TextItem? _textEditTarget;
     private PointD _textEditPosition;
@@ -320,8 +320,8 @@ public partial class EditorWindow : Window
     {
         var s = new Slider { Minimum = min, Maximum = max, Value = initial, IsMoveToPointEnabled = true };
         s.ValueChanged += (_, e) => onChanged(e.NewValue);
-        s.PreviewMouseDown += (_, _) => { if (_canvas.Selected is not null) _canvas.BeginItemEdit(); };
-        s.PreviewMouseUp += (_, _) => FinishSliderEdit();
+        s.PreviewMouseDown += (_, _) => { _sliderMouseActive = true; if (_canvas.Selected is not null) _canvas.BeginItemEdit(); };
+        s.PreviewMouseUp += (_, _) => { _sliderMouseActive = false; FinishSliderEdit(); };
         return s;
     }
 
@@ -338,9 +338,18 @@ public partial class EditorWindow : Window
     {
         if (_syncingPanel) return;
         _panelDirty = true;
+        // Keyboard changes (arrow keys) bypass PreviewMouseDown; snapshot here so the mutation
+        // does not silently fold into the next unrelated undo entry.
+        bool ownsSnapshot = false;
+        if (!_sliderMouseActive && _canvas.Selected is not null)
+        {
+            _canvas.BeginItemEdit();
+            ownsSnapshot = true;
+        }
         setDefault();
         if (_canvas.Selected is { } item) applyItem(item);
         _canvas.InvalidateVisual();
+        if (ownsSnapshot) { FinishSliderEdit(); }
     }
 
     private void ApplyInstant(Action setDefault, Action<AnnotationItem> applyItem)
@@ -360,8 +369,8 @@ public partial class EditorWindow : Window
             item =>
             {
                 item.StrokeColor = hex;
-                if (item is RectItem { Filled: true } r) r.FillColor = FillWithAlpha(hex);
-                if (item is EllipseItem { Filled: true } e) e.FillColor = FillWithAlpha(hex);
+                if (item is RectItem { Filled: true } r) r.FillColor = AnnotationCanvas.FillColorFor(hex);
+                if (item is EllipseItem { Filled: true } e) e.FillColor = AnnotationCanvas.FillColorFor(hex);
             });
     }
 
@@ -375,11 +384,11 @@ public partial class EditorWindow : Window
                 {
                     case RectItem r:
                         r.Filled = filled;
-                        if (filled) r.FillColor = FillWithAlpha(r.StrokeColor);
+                        if (filled) r.FillColor = AnnotationCanvas.FillColorFor(r.StrokeColor);
                         break;
                     case EllipseItem e:
                         e.Filled = filled;
-                        if (filled) e.FillColor = FillWithAlpha(e.StrokeColor);
+                        if (filled) e.FillColor = AnnotationCanvas.FillColorFor(e.StrokeColor);
                         break;
                 }
             });
@@ -390,13 +399,6 @@ public partial class EditorWindow : Window
         ApplyInstant(
             () => _canvas.FontBold = bold,
             item => { if (item is TextItem t) { t.Bold = bold; AnnotationCanvas.MeasureTextItem(t); } });
-    }
-
-    private static string FillWithAlpha(string stroke)
-    {
-        if (PixelColor.TryParseHex(stroke, out var c))
-            return new PixelColor(0x40, c.R, c.G, c.B).ToHex();
-        return "#40FF3B30";
     }
 
     private void UpdateSwatches()
@@ -791,7 +793,7 @@ public partial class EditorWindow : Window
         {
             if (_clipboard.TryPutImage(RenderFlattened()))
             {
-                _exported = true;
+                _dirty = false; // exported state is the baseline for the close prompt
                 SetStatus(L.Get("Toast.Copied"));
             }
             else SetStatus(L.Get("Toast.CopyFailed"));
@@ -809,7 +811,7 @@ public partial class EditorWindow : Window
         {
             var path = _exporter.QuickSave(RenderFlattened(), _canvas.Document.WindowTitle ?? _result.WindowTitle, _result.Mode.ToString());
             _lastSavedPath = path;
-            _exported = true;
+            _dirty = false;
             SetStatus(L.Get("Toast.Saved", path));
         }
         catch (Exception ex)
@@ -828,7 +830,7 @@ public partial class EditorWindow : Window
             var path = _exporter.SaveAs(RenderFlattened(), suggested);
             if (path is null) return;
             _lastSavedPath = path;
-            _exported = true;
+            _dirty = false;
             SetStatus(L.Get("Toast.Saved", path));
         }
         catch (Exception ex)
@@ -845,7 +847,7 @@ public partial class EditorWindow : Window
             var win = pin(RenderFlattened());
             win.Show();
             win.Activate();
-            _exported = true;
+            _dirty = false;
             SetStatus(L.Get("Toast.Pinned"));
             return;
         }
@@ -892,7 +894,8 @@ public partial class EditorWindow : Window
                 _canvas.ApplyCrop();
                 FitZoom();
                 return;
-            case Key.Space:
+            case Key.Space when Keyboard.FocusedElement is not System.Windows.Controls.Primitives.ButtonBase:
+                // Don't hijack space while a button/checkbox has focus; otherwise it pans the canvas.
                 _canvas.SpaceHeld = true;
                 e.Handled = true;
                 return;
@@ -938,7 +941,7 @@ public partial class EditorWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (_dirty && !_exported)
+        if (_dirty)
         {
             var answer = MessageBox.Show(this, L.Get("Editor.UnsavedBody"), L.Get("Editor.UnsavedTitle"),
                 MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
@@ -957,7 +960,14 @@ public partial class EditorWindow : Window
         _previewTimer.Stop();
         // Remember the last-used effect settings for the next capture.
         _settings.Current.Effects = _canvas.Document.Effects.Clone();
-        _settings.Save();
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Persisting editor settings on close failed", ex);
+        }
         base.OnClosed(e);
     }
 }

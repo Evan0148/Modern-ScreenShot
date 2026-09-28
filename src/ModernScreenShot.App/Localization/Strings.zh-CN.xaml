@@ -3,10 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- App -->
     <sys:String x:Key="App.Name">Modern ScreenShot</sys:String>
-    <sys:String x:Key="App.Tagline">简洁现代的 Windows 截图工具</sys:String>
     <sys:String x:Key="App.Tooltip">Modern ScreenShot - 单击开始区域截图</sys:String>
-    <sys:String x:Key="App.AlreadyRunning">Modern ScreenShot 已经在运行。</sys:String>
-    <sys:String x:Key="App.Error">出错了：{0}</sys:String>
 
     <!-- Tray -->
     <sys:String x:Key="Tray.Capture">截图</sys:String>
@@ -188,12 +185,10 @@
     <sys:String x:Key="Settings.HistoryMax">历史记录上限（条）</sys:String>
     <sys:String x:Key="Settings.PressKeys">请按下组合键…</sys:String>
     <sys:String x:Key="Settings.HotkeyHint">点击按钮后按下组合键；按 Esc 清除该绑定，重复的键位会标红。</sys:String>
-    <sys:String x:Key="Settings.Clear">清除</sys:String>
     <sys:String x:Key="Settings.Conflict">已被占用</sys:String>
     <sys:String x:Key="Settings.Version">版本 {0}</sys:String>
     <sys:String x:Key="Settings.SettingsPath">设置文件：{0}</sys:String>
     <sys:String x:Key="Settings.OpenLog">打开日志文件夹</sys:String>
-    <sys:String x:Key="Settings.ApplyEffects">从编辑器导出时应用效果</sys:String>
 
     <!-- History -->
     <sys:String x:Key="History.Title">历史记录</sys:String>

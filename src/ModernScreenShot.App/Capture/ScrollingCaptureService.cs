@@ -71,6 +71,7 @@ public sealed class ScrollingCaptureService
         ScrollingStatusWindow? status = null;
         DispatcherTimer? timer = null;
         DispatcherFrame? frame = null;
+        bool hasCursorPos = NativeMethods.GetCursorPos(out var cursorBefore);
         try
         {
             var captureSettings = _settings.Current.Capture;
@@ -84,6 +85,7 @@ public sealed class ScrollingCaptureService
             int idleRounds = 0;    // consecutive rounds without new content
             int scrollRounds = 0;  // rounds where scrolling produced new content
             int failedRounds = 0;  // consecutive frame capture failures
+            int failedStitches = 0; // consecutive stitch failures (e.g. OOM)
             bool finished = false;
 
             void Finish(string reason)
@@ -137,6 +139,14 @@ public sealed class ScrollingCaptureService
                 {
                     Log.Error("Scrolling capture: frame size changed mid-capture", ex);
                     Finish("frame size mismatch");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // e.g. OutOfMemoryException: the stitcher state must be considered corrupt.
+                    failedStitches++;
+                    Log.Error($"Scrolling capture: frame stitching failed ({failedStitches}/{MaxCaptureFailures})", ex);
+                    if (failedStitches >= MaxCaptureFailures) Finish("frame stitching failed");
                     return;
                 }
                 status.UpdateProgress(stitcher.Height);
@@ -202,6 +212,7 @@ public sealed class ScrollingCaptureService
             if (timer is not null) timer.Stop();
             status?.Close();
             if (frame is not null) frame.Continue = false; // safety net if Finish never ran
+            if (hasCursorPos) NativeMethods.SetCursorPos(cursorBefore.X, cursorBefore.Y); // SendWheel moved it into the region
         }
     }
 

@@ -3,10 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- App -->
     <sys:String x:Key="App.Name">Modern ScreenShot</sys:String>
-    <sys:String x:Key="App.Tagline">A modern screenshot tool for Windows</sys:String>
     <sys:String x:Key="App.Tooltip">Modern ScreenShot - click to capture a region</sys:String>
-    <sys:String x:Key="App.AlreadyRunning">Modern ScreenShot is already running.</sys:String>
-    <sys:String x:Key="App.Error">Something went wrong: {0}</sys:String>
 
     <!-- Tray -->
     <sys:String x:Key="Tray.Capture">Capture</sys:String>
@@ -188,12 +185,10 @@
     <sys:String x:Key="Settings.HistoryMax">History size (items)</sys:String>
     <sys:String x:Key="Settings.PressKeys">Press a key combination…</sys:String>
     <sys:String x:Key="Settings.HotkeyHint">Click a button, then press the combination. Esc clears the binding; duplicates are marked red.</sys:String>
-    <sys:String x:Key="Settings.Clear">Clear</sys:String>
     <sys:String x:Key="Settings.Conflict">Already in use</sys:String>
     <sys:String x:Key="Settings.Version">Version {0}</sys:String>
     <sys:String x:Key="Settings.SettingsPath">Settings file: {0}</sys:String>
     <sys:String x:Key="Settings.OpenLog">Open log folder</sys:String>
-    <sys:String x:Key="Settings.ApplyEffects">Apply effects when exporting from the editor</sys:String>
 
     <!-- History -->
     <sys:String x:Key="History.Title">History</sys:String>

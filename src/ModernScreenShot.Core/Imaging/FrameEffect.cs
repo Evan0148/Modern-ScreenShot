@@ -28,7 +28,18 @@ public static class FrameEffect
             dst.Data[i] = (byte)Math.Round(dst.Data[i] * cov);
         }
         for (int y = 0; y < Math.Min(ri, h); y++)
-            for (int x = 0; x < w; x++) { if (x >= ri && x < w - ri) continue; Process(x, y); Process(x, h - 1 - y); }
+        {
+            int mirror = h - 1 - y;
+            for (int x = 0; x < w; x++)
+            {
+                if (x >= ri && x < w - ri) continue;
+                Process(x, y);
+                // With a near-pill radius the mirror row can fall inside the top band; it is
+                // (or will be) covered by the primary loop there — processing it twice would
+                // square the coverage and darken the edge.
+                if (mirror >= Math.Min(ri, h)) Process(x, mirror);
+            }
+        }
         return dst;
     }
 
@@ -38,7 +49,6 @@ public static class FrameEffect
         int w = buf.Width, h = buf.Height;
         double r = Math.Min(radius, Math.Min(w, h) / 2.0);
         double t = thickness;
-        var overlay = new PixelBuffer(w, h);
         Parallel.For(0, h, y =>
         {
             for (int x = 0; x < w; x++)
@@ -52,13 +62,21 @@ public static class FrameEffect
                 double dist = -(qx > 0 || qy > 0 ? outside : Math.Max(outside, inner));
                 double cov = Math.Clamp(dist + 0.5, 0, 1) * Math.Clamp(t - dist + 0.5, 0, 1);
                 if (cov <= 0) continue;
-                overlay.SetPixel(x, y, color with { A = (byte)(color.A * cov) });
+                // Composite the border straight onto the destination in place; the border is
+                // modulated by the destination alpha so transparent pixels stay untouched.
+                int i = y * buf.Stride + x * 4;
+                int da = buf.Data[i + 3];
+                if (da == 0) continue;
+                int sa = color.A * (int)Math.Round(cov * da / 255.0);
+                if (sa == 0) continue;
+                int inv = da * (255 - sa) / 255;
+                int outA = sa + inv;
+                buf.Data[i] = (byte)((color.B * sa + buf.Data[i] * inv) / outA);
+                buf.Data[i + 1] = (byte)((color.G * sa + buf.Data[i + 1] * inv) / outA);
+                buf.Data[i + 2] = (byte)((color.R * sa + buf.Data[i + 2] * inv) / outA);
+                buf.Data[i + 3] = (byte)outA;
             }
         });
-        // Keep outside-of-shape alpha untouched: only draw where the image is visible.
-        for (int i = 3; i < overlay.Data.Length; i += 4)
-            overlay.Data[i] = (byte)(overlay.Data[i] * buf.Data[i] / 255);
-        buf.DrawOver(overlay, 0, 0);
     }
 
     public static PixelBuffer ApplyBackground(PixelBuffer content, FrameOptions o)

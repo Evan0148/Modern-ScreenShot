@@ -48,6 +48,7 @@ public sealed class LocalizationService
     /// <summary>Applies a language. "" follows the system UI culture. Must be called on the UI thread.</summary>
     public void Apply(string lang)
     {
+        var previousRequested = RequestedLanguage;
         RequestedLanguage = lang ?? "";
         var effective = Normalize(lang);
         var dict = LoadDictionary(effective);
@@ -65,7 +66,10 @@ public sealed class LocalizationService
         CultureInfo.DefaultThreadCurrentUICulture = culture;
         Thread.CurrentThread.CurrentUICulture = culture;
         Log.Info($"Language applied: {effective} (requested '{RequestedLanguage}')");
-        if (changed) LanguageChanged?.Invoke(this, EventArgs.Empty);
+        // Also raise when only the requested language changed: with system=en-US, switching
+        // "follow system" ↔ explicit en-US leaves the effective language unchanged but the
+        // tray checkmark and settings combo must still refresh.
+        if (changed || previousRequested != RequestedLanguage) LanguageChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Looks up a localized string (formatted with args). Returns the key itself when missing.</summary>

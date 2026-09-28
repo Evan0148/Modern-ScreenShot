@@ -84,7 +84,15 @@ public sealed class CaptureService
         {
             _settings.Current.Capture.LastRegion =
                 [outcome.Region.X, outcome.Region.Y, outcome.Region.Width, outcome.Region.Height];
-            _settings.Save();
+            try
+            {
+                _settings.Save();
+            }
+            catch (Exception ex)
+            {
+                // Losing the persisted region must not abort the capture the user just confirmed.
+                Log.Warn($"Persisting LastRegion failed: {ex.Message}");
+            }
         }
 
         if (outcome.WindowHandle != IntPtr.Zero)
@@ -173,7 +181,17 @@ public sealed class CaptureService
             Log.Warn("No last region stored; LastRegion capture ignored.");
             return null;
         }
-        return CaptureScreen(new PixelRect(last[0], last[1], last[2], last[3]), CaptureMode.LastRegion);
+        var rect = new PixelRect(last[0], last[1], last[2], last[3]);
+        // Monitor topology may have changed since the region was stored; BitBlt of off-screen
+        // coordinates silently yields black pixels, so clip to the current virtual screen.
+        var clipped = rect.Intersect(_monitors.GetVirtualScreen());
+        if (clipped.IsEmpty)
+        {
+            Log.Warn($"Stored last region {rect} is outside the current monitors; LastRegion capture ignored.");
+            return null;
+        }
+        if (clipped != rect) Log.Warn($"Stored last region clipped to the current monitors: {clipped}.");
+        return CaptureScreen(clipped, CaptureMode.LastRegion);
     }
 
     private static AfterCaptureAction MapIntent(OverlayIntent intent) => intent switch

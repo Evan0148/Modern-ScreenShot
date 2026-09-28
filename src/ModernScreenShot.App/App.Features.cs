@@ -32,6 +32,7 @@ public partial class App
     private HotkeyService? _hotkeys;
     private TrayService? _tray;
     private SettingsWindow? _settingsWindow;
+    private bool _captureInProgress;
 
     partial void RegisterFeatureServices(IServiceCollection services)
     {
@@ -233,7 +234,12 @@ public partial class App
         _settingsWindow = new SettingsWindow(Services.GetRequiredService<SettingsStore>(),
             Services.GetRequiredService<LocalizationService>(), _hotkeys,
             message => _tray?.ShowNotification(L.Get("Settings.Title"), message));
-        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        // A closing window already has IsLoaded == false; without the identity check its Closed
+        // handler would null the field of the window that was just opened instead.
+        _settingsWindow.Closed += (sender, _) =>
+        {
+            if (ReferenceEquals(sender, _settingsWindow)) _settingsWindow = null;
+        };
         _settingsWindow.Show();
         _settingsWindow.Activate();
         Log.Info("Settings window opened.");
@@ -256,6 +262,15 @@ public partial class App
 
     private void RunCapture(CaptureMode mode)
     {
+        // The overlay pumps a nested dispatcher frame, so hotkeys / tray clicks / forwarded
+        // arguments can re-enter this method mid-capture; a second overlay would stack on the
+        // first and its "frozen" frame would contain the first overlay's pixels.
+        if (_captureInProgress)
+        {
+            Log.Warn($"Capture '{mode}' requested while another capture is in progress; ignored.");
+            return;
+        }
+        _captureInProgress = true;
         try
         {
             var capture = Services.GetRequiredService<CaptureService>();
@@ -270,6 +285,11 @@ public partial class App
         catch (Exception ex)
         {
             Log.Error($"Capture '{mode}' failed", ex);
+            _tray?.ShowNotification(L.Get("Toast.CaptureFailed"), ex.Message);
+        }
+        finally
+        {
+            _captureInProgress = false;
         }
     }
 
@@ -392,6 +412,8 @@ public partial class App
     {
         if (Services.GetRequiredService<ClipboardService>().TryPutImage(result.Image))
             Log.Info("Capture copied to clipboard.");
+        else
+            Log.Error($"Copying {result.Image.Width}x{result.Image.Height} to the clipboard failed after retries.");
     }
 
     private void QuickSave(CaptureResult result, SettingsStore store)
@@ -412,7 +434,7 @@ public partial class App
         for (int i = 0; i < args.Length - 1; i++)
         {
             if (!string.Equals(args[i], "--capture", StringComparison.OrdinalIgnoreCase)) continue;
-            return args[i + 1] switch
+            var mode = (CaptureMode?)(args[i + 1].ToLowerInvariant() switch
             {
                 "region" => CaptureMode.Region,
                 "fullscreen" => CaptureMode.Fullscreen,
@@ -423,7 +445,9 @@ public partial class App
                 "scroll" => CaptureMode.Scrolling,
                 "delay" => CaptureMode.DelayRegion,
                 _ => null,
-            };
+            });
+            if (mode is not null) return mode;
+            // Unrecognized value: keep scanning so a later valid --capture still wins.
         }
         return null;
     }

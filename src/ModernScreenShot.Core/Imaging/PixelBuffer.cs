@@ -15,16 +15,24 @@ public sealed class PixelBuffer
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be positive.");
         Width = width;
         Height = height;
-        Data = new byte[width * height * 4];
+        Data = new byte[CheckedSize(width, height)];
     }
 
     public PixelBuffer(int width, int height, byte[] data)
     {
         if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be positive.");
-        if (data.Length < width * height * 4) throw new ArgumentException("Buffer too small.", nameof(data));
+        if (data.Length < CheckedSize(width, height)) throw new ArgumentException("Buffer too small.", nameof(data));
         Width = width;
         Height = height;
         Data = data;
+    }
+
+    /// <summary>Validated via long math so absurd dimensions fail with a clear error instead of int overflow.</summary>
+    private static long CheckedSize(int width, int height)
+    {
+        long size = (long)width * height * 4;
+        if (size > int.MaxValue) throw new OutOfMemoryException($"Image {width}x{height} exceeds the 2 GB buffer limit.");
+        return size;
     }
 
     public Span<byte> Row(int y) => Data.AsSpan(y * Stride, Stride);
@@ -106,7 +114,6 @@ public readonly record struct PixelColor(byte A, byte R, byte G, byte B)
     public static PixelColor Black => new(255, 0, 0, 0);
     public static PixelColor White => new(255, 255, 255, 255);
 
-    public uint ToArgb() => (uint)(A << 24 | R << 16 | G << 8 | B);
     public static PixelColor FromArgb(uint argb) => new((byte)(argb >> 24), (byte)(argb >> 16), (byte)(argb >> 8), (byte)argb);
 
     /// <summary>"#AARRGGBB" or "#RRGGBB".</summary>
@@ -118,7 +125,7 @@ public readonly record struct PixelColor(byte A, byte R, byte G, byte B)
         if (string.IsNullOrWhiteSpace(s)) return false;
         s = s.Trim().TrimStart('#');
         if (s.Length == 6) s = "FF" + s;
-        if (s.Length != 8 || !uint.TryParse(s, System.Globalization.NumberStyles.HexNumber, null, out var v)) return false;
+        if (s.Length != 8 || !uint.TryParse(s, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var v)) return false;
         color = FromArgb(v);
         return true;
     }

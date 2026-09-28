@@ -31,8 +31,16 @@ public sealed class ImageExporter
         string baseName = FileNameTemplate.Format(output.FileNameTemplate, DateTime.Now, output.Counter, windowTitle, mode);
         string path = FileNameTemplate.GetUniquePath(dir, baseName, ExtensionFor(output.Format));
         Save(image, path, output.Format, output.JpgQuality);
-        output.Counter++;
-        _settings.Save();
+        try
+        {
+            // The image file is already written; a failure here must not report the save as failed.
+            output.Counter++;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Persisting the output counter/settings failed: {ex.Message}");
+        }
         return path;
     }
 

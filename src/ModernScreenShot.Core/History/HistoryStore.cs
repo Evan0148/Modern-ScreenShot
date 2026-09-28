@@ -12,8 +12,6 @@ public sealed class HistoryEntry
     public int Height { get; set; }
     public string? WindowTitle { get; set; }
     public string? Mode { get; set; }
-    /// <summary>Last exported file path, if any.</summary>
-    public string? SavedPath { get; set; }
 
     public string Directory { get; set; } = "";
     public string OriginalPath => Path.Combine(Directory, "original.png");
@@ -48,18 +46,34 @@ public sealed class HistoryStore
 
     public void SaveMeta(HistoryEntry e)
     {
-        File.WriteAllText(e.MetaPath, JsonSerializer.Serialize(e, JsonDefaults.Options));
+        WriteAtomically(e.MetaPath, JsonSerializer.Serialize(e, JsonDefaults.Options));
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
     public void SaveDocument(HistoryEntry e, AnnotationDocument doc) =>
-        File.WriteAllText(e.DocumentPath, UndoStack.Serialize(doc));
+        WriteAtomically(e.DocumentPath, UndoStack.Serialize(doc));
+
+    /// <summary>tmp-file + rename so a crash mid-write can never leave a torn file behind.</summary>
+    private static void WriteAtomically(string path, string content)
+    {
+        try
+        {
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, content);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // History persistence is best-effort; a locked/full disk must not crash the capture flow.
+            System.Diagnostics.Debug.WriteLine($"History write failed for '{path}': {ex.Message}");
+        }
+    }
 
     public AnnotationDocument? LoadDocument(HistoryEntry e)
     {
         if (!File.Exists(e.DocumentPath)) return null;
         try { return UndoStack.Deserialize(File.ReadAllText(e.DocumentPath)); }
-        catch (JsonException) { return null; }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>Newest first.</summary>
@@ -84,10 +98,20 @@ public sealed class HistoryStore
         return [.. result.OrderByDescending(e => e.CreatedAt)];
     }
 
-    public void Delete(HistoryEntry e)
+    /// <summary>Best-effort delete; returns false when the entry directory could not be removed.</summary>
+    public bool Delete(HistoryEntry e)
     {
-        if (System.IO.Directory.Exists(e.Directory)) System.IO.Directory.Delete(e.Directory, true);
+        try
+        {
+            if (System.IO.Directory.Exists(e.Directory)) System.IO.Directory.Delete(e.Directory, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Debug.WriteLine($"History delete failed for '{e.Directory}': {ex.Message}");
+            return false;
+        }
         Changed?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     public void Clear()
@@ -97,11 +121,12 @@ public sealed class HistoryStore
 
     public void Prune(int maxCount)
     {
+        if (maxCount <= 0) return; // 0 = unlimited (deleting everything would be data loss)
         var all = List();
-        foreach (var e in all.Skip(Math.Max(0, maxCount)))
+        foreach (var e in all.Skip(maxCount))
         {
             try { System.IO.Directory.Delete(e.Directory, true); }
-            catch (IOException) { /* in use; retry next prune */ }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* in use; retry next prune */ }
         }
         if (all.Count > maxCount) Changed?.Invoke(this, EventArgs.Empty);
     }

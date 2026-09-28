@@ -76,14 +76,14 @@ public sealed class ColorPickerButton : Button
 
     public void SetColor(string hex)
     {
+        // An unparsable value would desync HexColor from what the picker/visual actually show;
+        // keep the previous color instead of accepting the broken string.
+        if (!Core.Imaging.PixelColor.TryParseHex(hex, out var c)) return;
         HexColor = hex;
-        if (Core.Imaging.PixelColor.TryParseHex(hex, out var c))
-        {
-            _syncing = true;
-            _picker.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
-            _hexBox.Text = c.ToHex();
-            _syncing = false;
-        }
+        _syncing = true;
+        _picker.Color = Color.FromArgb(c.A, c.R, c.G, c.B);
+        _hexBox.Text = c.ToHex();
+        _syncing = false;
         UpdateVisual();
     }
 
