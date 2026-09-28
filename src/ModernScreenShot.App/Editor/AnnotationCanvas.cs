@@ -205,8 +205,9 @@ public sealed class AnnotationCanvas : FrameworkElement
         {
             case CanvasMode.Drawing:
                 _preview = null;
+                if (_erasedAny) CommitEdit(); // an erase stroke already mutated the doc: keep it undoable
+                else _pendingSnapshot = null;
                 _erasedAny = false;
-                _pendingSnapshot = null;
                 _mode = CanvasMode.Idle;
                 InvalidateVisual();
                 return;
@@ -629,7 +630,9 @@ public sealed class AnnotationCanvas : FrameworkElement
     {
         item.StrokeColor = StrokeColor;
         if (item is not HighlighterItem) item.Opacity = ItemOpacity;
-        if (item is PenItem { } pen and not HighlighterItem) pen.StrokeThickness = StrokeThickness;
+        // The highlighter honors the thickness preset like the overlay does (its option bar
+        // offers the thickness dots); only the general opacity override is skipped.
+        if (item is PenItem { } pen) pen.StrokeThickness = StrokeThickness;
         else if (item is not MosaicItem and not SpotlightItem and not MagnifierItem and not TextItem and not StepItem)
             item.StrokeThickness = StrokeThickness;
     }
@@ -668,9 +671,7 @@ public sealed class AnnotationCanvas : FrameworkElement
         for (int i = _doc.Items.Count - 1; i >= 0; i--) // topmost first
         {
             var item = _doc.Items[i];
-            var b = item.GetBounds();
-            double tol = Math.Max(4, item.StrokeThickness / 2);
-            if (img.X < b.X - tol || img.X > b.Right + tol || img.Y < b.Y - tol || img.Y > b.Bottom + tol) continue;
+            if (!AnnotationRenderer.HitsForErase(item, img, Math.Max(6, item.StrokeThickness / 2 + 4))) continue;
             _doc.Items.RemoveAt(i);
             if (item is StepItem) _doc.RenumberSteps();
             if (item is MosaicItem) RecomputeMosaic();
@@ -683,7 +684,9 @@ public sealed class AnnotationCanvas : FrameworkElement
 
     private void FinishErase()
     {
-        if (_erasedAny) CommitEdit();
+        bool erased = _erasedAny;
+        _erasedAny = false; // consumed: must not leak into the next stroke's abort path
+        if (erased) CommitEdit();
         else _pendingSnapshot = null; // nothing was hit: no undo entry
     }
 
@@ -902,9 +905,11 @@ public sealed class AnnotationCanvas : FrameworkElement
     {
         if (_preview is null)
         {
-            // Only reachable when the tool was switched mid-stroke (e.g. an eraser drag): discard
-            // the pre-stroke snapshot so it cannot fold into the next unrelated undo entry.
-            _pendingSnapshot = null;
+            // Only reachable when the tool was switched mid-stroke. An eraser stroke has already
+            // deleted items — keep the deletion undoable; a draw stroke committed nothing — discard.
+            if (_erasedAny) CommitEdit();
+            else _pendingSnapshot = null;
+            _erasedAny = false;
             return;
         }
         var item = _preview;

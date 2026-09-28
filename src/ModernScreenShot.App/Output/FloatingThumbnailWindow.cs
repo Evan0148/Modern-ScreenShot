@@ -211,6 +211,12 @@ public sealed class FloatingThumbnailWindow : Window
             menu.Items.Add(MenuItem(L.Get("Action.Pin"), () => Land(_onPin)));
         menu.Items.Add(new Separator());
         menu.Items.Add(MenuItem(L.Get("Action.Close"), Close));
+        // The menu lives in its own popup HWND: the card gets MouseLeave the moment it opens.
+        // Treat an open menu as interaction — the countdown resumes only after it closes.
+        menu.Closed += (_, _) =>
+        {
+            if (!_landed && !_hovering) _timer.Start();
+        };
         ContextMenu = menu;
     }
 
@@ -269,13 +275,14 @@ public sealed class FloatingThumbnailWindow : Window
     {
         _hovering = false;
         if (_closeButton is not null) _closeButton.Opacity = 0;
-        if (!_landed) _timer.Start(); // resume countdown
+        if (!_landed && ContextMenu?.IsOpen != true) _timer.Start(); // resume countdown (an open menu pauses it)
     }
 
     private void OnTimerTick(object? sender, EventArgs e)
     {
         _timer.Stop();
         if (_hovering) return; // safety: don't dismiss while hovered
+        if (ContextMenu?.IsOpen == true) { _timer.Start(); return; } // don't land under an open menu
         Land(_onLand); // ignored → run configured landing action
     }
 

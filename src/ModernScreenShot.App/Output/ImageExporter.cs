@@ -1,5 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Services;
@@ -107,8 +109,18 @@ public sealed class ImageExporter
     {
         if (encoder is JpegBitmapEncoder)
         {
-            // JPEG has no alpha channel; flatten onto opaque Bgr32 first.
-            var converted = new FormatConvertedBitmap(image.ToBitmapSource(), System.Windows.Media.PixelFormats.Bgr32, null, 0);
+            // JPEG has no alpha channel: composite over white first so transparent areas
+            // (mac-style shadow surround, rounded corners) don't flatten to black.
+            var src = image.ToBitmapSource();
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, src.PixelWidth, src.PixelHeight));
+                dc.DrawImage(src, new Rect(0, 0, src.PixelWidth, src.PixelHeight));
+            }
+            var rtb = new RenderTargetBitmap(src.PixelWidth, src.PixelHeight, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(visual);
+            var converted = new FormatConvertedBitmap(rtb, PixelFormats.Bgr32, null, 0);
             converted.Freeze();
             encoder.Frames.Add(BitmapFrame.Create(converted));
         }

@@ -193,6 +193,9 @@ internal sealed class OverlayWindow : Window
     {
         if (_textOverlay is not null)
         {
+            // Clicks inside the text box must reach it (caret move / text selection) — only a
+            // click outside commits and closes.
+            if (e.OriginalSource is DependencyObject src && _textOverlay.IsAncestorOf(src)) return;
             CloseTextOverlay(commit: true);
             if (IsOverToolbar(e)) return; // let the toolbar button receive the click
             e.Handled = true;             // the click elsewhere only finishes the text
@@ -842,8 +845,14 @@ internal sealed class OverlayWindow : Window
         _textOverlay.LostFocus += (_, _) => CloseTextOverlay(commit: true);
         _toolbarLayer.Children.Add(_textOverlay);
         var local = ToLocalDip(new PixelRect(sel.X + (int)e.Position.X, sel.Y + (int)e.Position.Y, 0, 0));
-        Canvas.SetLeft(_textOverlay, Math.Clamp(local.X, 2, Math.Max(2, ActualWidth - 140)));
-        Canvas.SetTop(_textOverlay, Math.Clamp(local.Y, 2, Math.Max(2, ActualHeight - 60)));
+        double left = Math.Clamp(local.X, 2, Math.Max(2, ActualWidth - 140));
+        double top = Math.Clamp(local.Y, 2, Math.Max(2, ActualHeight - 60));
+        Canvas.SetLeft(_textOverlay, left);
+        Canvas.SetTop(_textOverlay, top);
+        // The text commits where the visible box sits: apply the same clamp offset in image px.
+        _textEditPosition = new Core.Annotation.PointD(
+            e.Position.X + (left - local.X) * scale,
+            e.Position.Y + (top - local.Y) * scale);
         _textOverlay.Focus();
     }
 

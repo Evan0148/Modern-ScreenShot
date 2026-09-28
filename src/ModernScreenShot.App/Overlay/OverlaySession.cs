@@ -117,7 +117,7 @@ internal sealed class OverlaySession
         get => _tool;
         set
         {
-            if (_autoConfirm || value == _tool || _drawPreview is not null) return;
+            if (_autoConfirm || value == _tool || _drawPreview is not null || _erasing) return;
             _tool = value is EditorTool.Select ? null : value;
             AnnotationChanged?.Invoke(this, EventArgs.Empty);
             InvalidateAll();
@@ -323,8 +323,18 @@ internal sealed class OverlaySession
 
     internal void OnDoubleClick(OverlayWindow w, VPoint p)
     {
-        if (Mode == CaptureMode.Region && _state == OverlayState.Selected && !_selection.IsEmpty)
-            Confirm(OverlayIntent.Edit);
+        if (Mode != CaptureMode.Region || _state != OverlayState.Selected || _selection.IsEmpty) return;
+        // With an annotation tool active, a rapid double-click inside the selection is two presses
+        // of that tool (e.g. two Step markers), not "confirm to editor" — only the Select tool
+        // (Tool == null) confirms. The second press starts a stroke whose zero-size commit is
+        // rejected, except for the Step tool where each tap places a marker.
+        if (Tool is { } && _selection.Contains(p.X, p.Y))
+        {
+            BeginDraw(p);
+            InvalidateAll();
+            return;
+        }
+        Confirm(OverlayIntent.Edit);
     }
 
     /// <summary>Handles a key press; returns true when the key was consumed.</summary>
@@ -674,9 +684,7 @@ internal sealed class OverlaySession
         for (int i = Doc.Items.Count - 1; i >= 0; i--) // topmost first
         {
             var item = Doc.Items[i];
-            var b = item.GetBounds();
-            double tol = Math.Max(4, item.StrokeThickness / 2);
-            if (img.X < b.X - tol || img.X > b.Right + tol || img.Y < b.Y - tol || img.Y > b.Bottom + tol) continue;
+            if (!AnnotationRenderer.HitsForErase(item, img, Math.Max(6, item.StrokeThickness / 2 + 4))) continue;
             Doc.Items.RemoveAt(i);
             if (item is StepItem) Doc.RenumberSteps();
             if (item is MosaicItem) RecomputeMosaic();

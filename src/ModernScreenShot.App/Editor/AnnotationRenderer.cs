@@ -184,7 +184,10 @@ internal static class AnnotationRenderer
     private static void DrawMosaic(DrawingContext dc, MosaicItem m, BitmapSource baseImage, BitmapSource? mosaicSource)
     {
         if (mosaicSource is null) return;
-        var pr = m.Rect.ToPixelRect().Intersect(new PixelRect(0, 0, baseImage.PixelWidth, baseImage.PixelHeight));
+        // The mosaic layer is a crop of the base image (the selection in the overlay), so a mosaic
+        // rect overhanging the base/monitor bounds must be clipped to the LAYER, not to baseImage —
+        // in the overlay the base is monitor-sized while the layer is only selection-sized.
+        var pr = m.Rect.ToPixelRect().Intersect(new PixelRect(0, 0, mosaicSource.PixelWidth, mosaicSource.PixelHeight));
         if (pr.IsEmpty) return;
         var crop = new CroppedBitmap(mosaicSource, new Int32Rect(pr.X, pr.Y, pr.Width, pr.Height));
         dc.DrawImage(crop, new Rect(pr.X, pr.Y, pr.Width, pr.Height));
@@ -253,6 +256,37 @@ internal static class AnnotationRenderer
         double t = Math.Clamp(((p.X - a.X) * abx + (p.Y - a.Y) * aby) / lenSq, 0, 1);
         double dx = p.X - (a.X + t * abx), dy = p.Y - (a.Y + t * aby);
         return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>
+    /// Geometry-aware hit test for the eraser: true stroke geometry for lines/pens (a shallow
+    /// diagonal's bounding box is far larger than its ink), circle for the magnifier callout,
+    /// bounding box for area shapes. <paramref name="tol"/> is in image pixels.
+    /// </summary>
+    public static bool HitsForErase(AnnotationItem item, PointD p, double tol)
+    {
+        switch (item)
+        {
+            case LineItem l:
+                return DistanceToSegment(p, l.Start, l.End) <= l.StrokeThickness / 2 + tol;
+            case PenItem pen:
+            {
+                var b = pen.GetBounds();
+                if (p.X < b.X - tol || p.X > b.Right + tol || p.Y < b.Y - tol || p.Y > b.Bottom + tol) return false;
+                for (int i = 0; i < pen.Points.Count - 1; i++)
+                    if (DistanceToSegment(p, pen.Points[i], pen.Points[i + 1]) <= pen.StrokeThickness / 2 + tol)
+                        return true;
+                return false;
+            }
+            case MagnifierItem mag:
+                double dx = p.X - mag.TargetCenter.X, dy = p.Y - mag.TargetCenter.Y;
+                return Math.Sqrt(dx * dx + dy * dy) <= mag.TargetRadius + tol;
+            default:
+            {
+                var b = item.GetBounds();
+                return b.X - tol <= p.X && p.X <= b.Right + tol && b.Y - tol <= p.Y && p.Y <= b.Bottom + tol;
+            }
+        }
     }
 
     private static T Freeze<T>(T freezable) where T : Freezable

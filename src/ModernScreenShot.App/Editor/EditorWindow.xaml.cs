@@ -747,7 +747,7 @@ public partial class EditorWindow : Window
             return;
         }
         var settings = _canvas.Document.Effects.Clone();
-        bool apply = settings.Enabled;
+        bool apply = settings.Enabled && !_canvas.Document.EffectsBaked; // baked docs never recompose (see RenderFlattened)
         System.Threading.Tasks.Task.Run(() =>
         {
             try
@@ -816,7 +816,9 @@ public partial class EditorWindow : Window
         var rtb = new RenderTargetBitmap(crop.Width, crop.Height, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(visual);
         var buffer = BitmapInterop.FromBitmapSource(rtb);
-        if (_settings.Current.Output.ApplyEffectsOnExport && doc.Effects.Enabled)
+        // EffectsBaked docs (mac-style shadow baked at capture time) must never compose again —
+        // the stored Effects are disabled placeholders and re-composing would double the frame.
+        if (_settings.Current.Output.ApplyEffectsOnExport && doc.Effects.Enabled && !doc.EffectsBaked)
             buffer = EffectPipeline.Compose(buffer, doc.Effects);
         return buffer;
     }
