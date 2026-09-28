@@ -270,16 +270,17 @@ internal sealed class OverlayWindow : Window
     private Button _undoButton = null!, _redoButton = null!;
     private TextBox? _textOverlay;
 
-    /// <summary>Snipaste-style icon strip: annotation tools, undo/redo, then the output actions.</summary>
+    /// <summary>Snipaste-style icon strip: annotation tools, undo/redo, then the output actions.
+    /// Uses a WrapPanel + MaxWidth so a narrow window wraps it to a second row instead of clipping.</summary>
     private Border BuildToolbar()
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         void Sep() => panel.Children.Add(new Separator { Margin = new Thickness(2, 7, 2, 7) });
 
         AddToolButton(panel, EditorTool.Select, SelectIcon());
         AddToolButton(panel, EditorTool.Rect, ShapeIcon(new RectangleGeometry(new Rect(2.5, 4.5, 13, 9))));
         AddToolButton(panel, EditorTool.Ellipse, ShapeIcon(new EllipseGeometry(new Point(9, 9), 7, 5.5)));
-        AddToolButton(panel, EditorTool.Line, ShapeIcon(Geo(g => { g.BeginFigure(new Point(2, 14), false, false); g.LineTo(new Point(2, 14), true, false); g.LineTo(new Point(16, 2), true, false); })));
+        AddToolButton(panel, EditorTool.Line, ShapeIcon(Geo(g => { g.BeginFigure(new Point(3, 14), false, false); g.LineTo(new Point(16, 2), true, false); })));
         AddToolButton(panel, EditorTool.Arrow, ShapeIcon(ArrowGeometry()));
         AddToolButton(panel, EditorTool.Pen, GlyphIcon("\uE70F"));
         AddToolButton(panel, EditorTool.Highlighter, GlyphIcon("\uE7E6"));
@@ -312,7 +313,7 @@ internal sealed class OverlayWindow : Window
         };
     }
 
-    private Button AddToolButton(StackPanel panel, EditorTool tool, FrameworkElement icon)
+    private Button AddToolButton(WrapPanel panel, EditorTool tool, FrameworkElement icon)
     {
         var button = MakeIconButton(null, $"Tool.{tool}", (_, _) =>
             _session.Tool = _session.Tool == tool ? null : tool);
@@ -326,8 +327,10 @@ internal sealed class OverlayWindow : Window
     {
         var button = new Button
         {
-            Width = 32,
-            Height = 30,
+            Width = 30,
+            MinWidth = 0,               // the WPF-UI style inflates buttons; keep the strip compact
+            Padding = new Thickness(0), // so it never gets clipped on narrow windows
+            Height = 28,
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Foreground = Brushes.White,
@@ -489,8 +492,11 @@ internal sealed class OverlayWindow : Window
             _toolbarShown = true;
         }
         // Measure once; the toolbar content never changes size, so cache it and only move the transform.
+        // MaxWidth forces the WrapPanel onto a second row when the window is too narrow — otherwise
+        // the right-hand buttons (copy/save/pin/confirm/cancel) would be clipped off-window.
         if (_toolbarSize.Width <= 0)
         {
+            _toolbarHost.MaxWidth = Math.Max(120, ActualWidth - 8);
             _toolbarHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             _toolbarSize = _toolbarHost.DesiredSize;
         }
