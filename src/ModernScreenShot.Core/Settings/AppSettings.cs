@@ -4,7 +4,7 @@ namespace ModernScreenShot.Core.Settings;
 
 public enum CaptureMode { Region, Fullscreen, AllMonitors, ActiveWindow, WindowPick, LastRegion, Scrolling, DelayRegion }
 
-public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin }
+public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin, FloatingThumbnail }
 
 public enum ImageFormat { Png, Jpg, WebP }
 

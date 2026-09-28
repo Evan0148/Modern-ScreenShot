@@ -179,6 +179,7 @@
                             <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
                             <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
                             <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
                         </ComboBox>
                         <TextBlock Grid.Row="9" Grid.Column="0" Style="{StaticResource FormLabel}"
                                    Text="{DynamicResource Settings.AfterOther}"/>
@@ -189,6 +190,7 @@
                             <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
                             <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
                             <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                            <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
                         </ComboBox>
                     </Grid>
                 </ScrollViewer>

@@ -180,6 +180,7 @@
     <sys:String x:Key="Settings.After.CopyOnly">仅复制</sys:String>
     <sys:String x:Key="Settings.After.SaveOnly">仅保存</sys:String>
     <sys:String x:Key="Settings.After.Pin">贴到屏幕</sys:String>
+    <sys:String x:Key="Settings.After.Thumbnail">浮动缩略图</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">延时（秒）</sys:String>
     <sys:String x:Key="Settings.ShowMagnifier">选区时显示放大镜</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">截取鼠标指针</sys:String>

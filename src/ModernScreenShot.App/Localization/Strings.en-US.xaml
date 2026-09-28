@@ -180,6 +180,7 @@
     <sys:String x:Key="Settings.After.CopyOnly">Copy only</sys:String>
     <sys:String x:Key="Settings.After.SaveOnly">Save only</sys:String>
     <sys:String x:Key="Settings.After.Pin">Pin to screen</sys:String>
+    <sys:String x:Key="Settings.After.Thumbnail">Floating thumbnail</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">Delay (seconds)</sys:String>
     <sys:String x:Key="Settings.ShowMagnifier">Show magnifier while selecting</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">Include mouse cursor</sys:String>

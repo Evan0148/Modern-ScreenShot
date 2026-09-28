@@ -2,6 +2,7 @@ using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Editor;
+using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Localization;
 using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Overlay;
@@ -333,6 +334,9 @@ public partial class App
             case AfterCaptureAction.Pin:
                 PinCapture(result);
                 break;
+            case AfterCaptureAction.FloatingThumbnail:
+                ShowFloatingThumbnail(result, doc);
+                break;
             default: // CopyOnly; ShowToolbar is handled by the overlay itself, which always supplies an intent
                 CopyToClipboard(result);
                 break;
@@ -407,6 +411,38 @@ public partial class App
         pin.Show();
         pin.Activate();
         Log.Info($"Pinned {result.Image.Width}x{result.Image.Height} to screen.");
+    }
+
+    /// <summary>
+    /// macOS-style post-capture floating thumbnail. Shows a small card at the cursor monitor's
+    /// bottom-right; click opens the editor, the right-click menu copies/saves/pins/closes, and
+    /// ignoring it (auto-dismiss) runs the configured landing action (AutoSave &gt; AutoCopy &gt; none).
+    /// Reuses the EditorWindows lifetime rule so the app stays alive while the card is visible.
+    /// </summary>
+    private void ShowFloatingThumbnail(CaptureResult result, AnnotationDocument? doc)
+    {
+        var store = Services.GetRequiredService<SettingsStore>();
+        var output = store.Current.Output;
+        var thumb = ImageWithAnnotations(result).ToBitmapSource();
+
+        // Default landing action when the card is ignored: save, else copy, else nothing.
+        Action? onLand =
+            output.AutoSave ? () => QuickSave(result, store)
+            : output.AutoCopy ? () => CopyToClipboard(result)
+            : null;
+
+        var window = new FloatingThumbnailWindow(
+            thumb,
+            Services.GetRequiredService<MonitorService>(),
+            onEdit: () => OpenEditor(result, doc),
+            onCopy: () => CopyToClipboard(result),
+            onSave: () => QuickSave(result, store),
+            onPin: () => PinCapture(result),
+            onLand: onLand);
+        window.Closed += OnEditorClosed;
+        EditorWindows.Add(window); // same lifetime rule: keep the app alive while the card exists
+        window.Show();
+        Log.Info($"Floating thumbnail shown for {result.Mode} capture ({result.Image.Width}x{result.Image.Height}).");
     }
 
     private static string OpenDefaultSaveFolder()
