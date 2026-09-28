@@ -103,12 +103,35 @@ public sealed class ClipboardService
         WriteInt32(data, 56, 0x73524742);                      // bV5CSType = 'sRGB'
         WriteInt32(data, 108, 4);                              // bV5Intent = LCS_GM_IMAGES
 
-        // Flip rows bottom-up so the DIB matches the classic layout.
+        // Flip rows bottom-up to the classic DIB layout AND premultiply the RGB channels. A DIBV5
+        // carrying an alpha mask is consumed as premultiplied by alpha-aware apps; handing them
+        // straight-alpha pixels makes soft edges un-premultiply into saturated random hues (the
+        // "rainbow halo" around mac-style shadows), while alpha-ignoring apps draw the raw RGB as
+        // an opaque tinted stroke. The clipboard "PNG" stream stays straight-alpha (PNG semantics).
         for (int y = 0; y < image.Height; y++)
         {
-            int src = y * image.Stride;
-            int dst = headerSize + (image.Height - 1 - y) * image.Stride;
-            Array.Copy(image.Data, src, data, dst, image.Stride);
+            var s = image.Data.AsSpan(y * image.Stride, image.Stride);
+            var d = data.AsSpan(headerSize + (image.Height - 1 - y) * image.Stride, image.Stride);
+            for (int x = 0; x < image.Width; x++)
+            {
+                int i = x * 4;
+                int a = s[i + 3];
+                if (a == 255)
+                {
+                    d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; d[i + 3] = 255;
+                }
+                else if (a == 0)
+                {
+                    d[i] = 0; d[i + 1] = 0; d[i + 2] = 0; d[i + 3] = 0;
+                }
+                else
+                {
+                    d[i] = (byte)((s[i] * a + 127) / 255);
+                    d[i + 1] = (byte)((s[i + 1] * a + 127) / 255);
+                    d[i + 2] = (byte)((s[i + 2] * a + 127) / 255);
+                    d[i + 3] = (byte)a;
+                }
+            }
         }
         return data;
     }

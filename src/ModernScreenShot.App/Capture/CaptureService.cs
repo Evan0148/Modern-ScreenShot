@@ -226,19 +226,20 @@ public sealed class CaptureService
     }
 
     /// <summary>
-    /// When macOS-style window shadow is enabled, bakes the SoftFloat preset (soft drop shadow over a
-    /// transparent surround) into the returned image so the result is what-you-see-is-what-you-get in
-    /// the editor canvas, pin, clipboard, saved files and history. The document's Effects are stored
-    /// disabled with <see cref="AnnotationDocument.EffectsBaked"/> set, so exports never compose them
-    /// again and the editor close hook does not leak them into the user's global effect preferences.
-    /// A pre-existing document (a region selection snapped onto a window, carrying inline annotations)
-    /// has its items shifted into the padded surround. When disabled, the inputs pass through unchanged.
+    /// When macOS-style window shadow is enabled, bakes the MacShadow preset (pure-black, heavily
+    /// diffused, low-opacity drop shadow over a transparent surround) into the returned image so the
+    /// result is what-you-see-is-what-you-get in the editor canvas, pin, clipboard, saved files and
+    /// history. The document's Effects are stored disabled with
+    /// <see cref="AnnotationDocument.EffectsBaked"/> set, so exports never compose them again and the
+    /// editor close hook does not leak them into the user's global effect preferences. A pre-existing
+    /// document (a region selection snapped onto a window, carrying inline annotations) has its items
+    /// shifted into the padded surround. When disabled, the inputs pass through unchanged.
     /// </summary>
     private AnnotationDocument? ApplyMacStyleIfEnabled(AnnotationDocument? doc, PixelBuffer image, CaptureMode mode, string? title, out PixelBuffer bakedImage)
     {
         bakedImage = image;
         if (!_settings.Current.Capture.MacStyleWindowShadow) return doc;
-        var effects = BuiltInPresets.SoftFloat().Settings;
+        var effects = BuiltInPresets.MacShadow();
         try
         {
             bakedImage = EffectPipeline.Compose(image, effects); // Compose itself early-returns when disabled

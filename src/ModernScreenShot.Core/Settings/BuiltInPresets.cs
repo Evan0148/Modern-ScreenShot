@@ -73,5 +73,32 @@ public static class BuiltInPresets
         },
     };
 
+    /// <summary>
+    /// macOS-style window shot: pure black, heavily diffused, low-opacity shadow with a slight
+    /// downward offset — the ⌘⇧4 space-click look. Not part of All(): it is a capture-time style,
+    /// not a user-facing editor preset.
+    /// </summary>
+    public static EffectSettings MacShadow() => new()
+    {
+        Enabled = true,
+        Shadow = new ShadowOptions
+        {
+            Enabled = true,
+            BlurRadius = 52,        // three-pass box ≈ gaussian σ≈26: wide, borderless falloff
+            Spread = 0,             // no dilation: dilation creates the flat "thick stroke" look
+            Color = "#FF000000",    // pure black — no blue/purple tint
+            Angle = 90,             // light from straight above
+            Distance = 14,          // subtle downward offset
+            Opacity = 0.20,         // ~10-25% band
+        },
+        Reflection = new ReflectionOptions { Enabled = false },
+        Frame = new FrameOptions
+        {
+            CornerRadius = 8,       // hugs the Win11 window corner radius
+            Padding = 56,           // comfortably exceeds blur extent + distance so the falloff never clips
+            Background = BackgroundKind.None,
+        },
+    };
+
     public static IReadOnlyList<EffectPreset> All() => [Clean(), SoftFloat(), Dramatic(), Mirror(), GradientCard(), None()];
 }
