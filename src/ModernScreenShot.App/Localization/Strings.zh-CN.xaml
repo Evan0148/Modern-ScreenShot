@@ -94,6 +94,7 @@
     <sys:String x:Key="Tool.Spotlight">聚光灯 (S)</sys:String>
     <sys:String x:Key="Tool.Magnifier">放大镜 (G)</sys:String>
     <sys:String x:Key="Tool.Crop">裁剪 (C)</sys:String>
+    <sys:String x:Key="Tool.Eraser">橡皮擦 (X)</sys:String>
 
     <!-- Properties -->
     <sys:String x:Key="Prop.Color">颜色</sys:String>
@@ -115,6 +116,7 @@
     <sys:String x:Key="Prop.ShapeEllipse">椭圆</sys:String>
     <sys:String x:Key="Prop.Dim">暗化程度</sys:String>
     <sys:String x:Key="Prop.Shape">形状</sys:String>
+    <sys:String x:Key="Prop.Radius">半径</sys:String>
 
     <!-- Effects -->
     <sys:String x:Key="Effects.Title">效果</sys:String>
@@ -226,6 +228,7 @@
     <sys:String x:Key="Editor.UnsavedBody">这张截图尚未复制或保存，仍可在历史记录中找到。</sys:String>
     <sys:String x:Key="Editor.SelectHint">点击选中标注，可拖动、缩放、删除；双击文字直接编辑。</sys:String>
     <sys:String x:Key="Editor.CropHint">拖动选择裁剪范围，Enter 或双击应用，Esc 取消。再次按 Esc 可移除已有裁剪。</sys:String>
+    <sys:String x:Key="Editor.EraserHint">按住鼠标拖过标注即可删除。</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot 已在后台运行</sys:String>

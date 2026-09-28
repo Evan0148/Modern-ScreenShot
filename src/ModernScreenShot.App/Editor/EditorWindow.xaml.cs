@@ -97,7 +97,12 @@ public partial class EditorWindow : Window
             StrokeColor = editor.StrokeColor,
             StrokeThickness = editor.StrokeThickness,
             FontSize = editor.FontSize,
+            FontBold = editor.FontBold,
+            FillShape = editor.FillShape,
+            DashedLine = editor.DashedLine,
             MosaicStrength = editor.MosaicCellSize,
+            MosaicMode = editor.MosaicPixelate ? MosaicMode.Pixelate : MosaicMode.Blur,
+            StepRadius = editor.StepRadius,
             SpotlightDim = editor.SpotlightDim,
             MagnifierZoom = editor.MagnifierZoom,
         };
@@ -128,7 +133,7 @@ public partial class EditorWindow : Window
             (EditorTool.Line, "Tool.Line"), (EditorTool.Arrow, "Tool.Arrow"), (EditorTool.Pen, "Tool.Pen"),
             (EditorTool.Text, "Tool.Text"), (EditorTool.Step, "Tool.Step"), (EditorTool.Highlighter, "Tool.Highlighter"),
             (EditorTool.Mosaic, "Tool.Mosaic"), (EditorTool.Blur, "Tool.Blur"), (EditorTool.Spotlight, "Tool.Spotlight"),
-            (EditorTool.Magnifier, "Tool.Magnifier"), (EditorTool.Crop, "Tool.Crop"),
+            (EditorTool.Magnifier, "Tool.Magnifier"), (EditorTool.Crop, "Tool.Crop"), (EditorTool.Eraser, "Tool.Eraser"),
         })
         {
             var rb = new RadioButton
@@ -457,8 +462,13 @@ public partial class EditorWindow : Window
         SetVisible(_mosaicSection, tool is EditorTool.Mosaic or EditorTool.Blur);
         SetVisible(_spotlightSection, tool == EditorTool.Spotlight);
         SetVisible(_magnifierSection, tool == EditorTool.Magnifier);
-        SetVisible(_hintSection, tool is EditorTool.Select or EditorTool.Crop);
-        _hintText.Text = tool == EditorTool.Crop ? L.Get("Editor.CropHint") : L.Get("Editor.SelectHint");
+        SetVisible(_hintSection, tool is EditorTool.Select or EditorTool.Crop or EditorTool.Eraser);
+        _hintText.Text = tool switch
+        {
+            EditorTool.Crop => L.Get("Editor.CropHint"),
+            EditorTool.Eraser => L.Get("Editor.EraserHint"),
+            _ => L.Get("Editor.SelectHint"),
+        };
         _syncingPanel = false;
         SyncControlValues(null);
     }
@@ -940,6 +950,7 @@ public partial class EditorWindow : Window
             Key.S => EditorTool.Spotlight,
             Key.G => EditorTool.Magnifier,
             Key.C => EditorTool.Crop,
+            Key.X => EditorTool.Eraser,
             _ => null,
         };
         if (tool is { } t)
@@ -984,6 +995,17 @@ public partial class EditorWindow : Window
         _previewTimer.Stop();
         // Remember the last-used effect settings for the next capture.
         _settings.Current.Effects = _canvas.Document.Effects.Clone();
+        // Remember the last-used annotation tool options as well (mirrors the overlay options bar).
+        var ed = _settings.Current.Editor;
+        ed.StrokeColor = _canvas.StrokeColor;
+        ed.StrokeThickness = _canvas.StrokeThickness;
+        ed.FontSize = _canvas.FontSize;
+        ed.FontBold = _canvas.FontBold;
+        ed.FillShape = _canvas.FillShape;
+        ed.DashedLine = _canvas.DashedLine;
+        ed.MosaicCellSize = _canvas.MosaicStrength;
+        ed.MosaicPixelate = _canvas.MosaicMode != MosaicMode.Blur;
+        ed.StepRadius = _canvas.StepRadius;
         try
         {
             _settings.Save();

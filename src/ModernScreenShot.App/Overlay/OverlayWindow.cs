@@ -266,12 +266,29 @@ internal sealed class OverlayWindow : Window
 
     private static readonly Brush ActiveToolBrush = Freeze(new SolidColorBrush(Color.FromArgb(0xE6, 0x0A, 0x84, 0xFF)));
     private static readonly Brush HoverBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush FillHintBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush SwatchBorderBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)));
     private readonly Dictionary<EditorTool, Button> _toolButtons = [];
     private Button _undoButton = null!, _redoButton = null!;
     private TextBox? _textOverlay;
 
-    /// <summary>Snipaste-style icon strip: annotation tools, undo/redo, then the output actions.
-    /// Uses a WrapPanel + MaxWidth so a narrow window wraps it to a second row instead of clipping.</summary>
+    // Options bar: every control is built once with the toolbar and only its Visibility/IsEnabled/
+    // background is touched afterwards — this runs on the overlay hot path (per rendered frame).
+    private WrapPanel _optionsRow = null!;
+    private StackPanel _thicknessOptions = null!, _fontOptions = null!, _stepOptions = null!,
+        _mosaicModeOptions = null!, _mosaicStrengthOptions = null!;
+    private Button _fillToggle = null!, _dashedToggle = null!, _pixelateToggle = null!, _blurToggle = null!;
+    private WrapPanel _palettePanel = null!;
+    private readonly List<Button> _swatches = [];
+    private readonly List<(Button Button, double Value)> _thicknessDots = [];
+    private readonly List<(Button Button, double Value)> _fontButtons = [];
+    private readonly List<(Button Button, double Value)> _stepDots = [];
+    private readonly List<(Button Button, int Value)> _mosaicDots = [];
+    private (bool Thickness, bool Fill, bool Dashed, bool Font, bool Step, bool Mosaic, bool Palette) _optionsSig;
+
+    /// <summary>Snipaste-style icon strip: annotation tools, undo/redo, then the output actions, with a
+    /// second row for the active tool's options. Each row is a WrapPanel + the host's MaxWidth, so a
+    /// narrow window wraps rows onto further lines instead of clipping.</summary>
     private Border BuildToolbar()
     {
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
@@ -287,6 +304,7 @@ internal sealed class OverlayWindow : Window
         AddToolButton(panel, EditorTool.Text, TextIcon("T"));
         AddToolButton(panel, EditorTool.Step, TextIcon("\u2460"));
         AddToolButton(panel, EditorTool.Mosaic, MosaicIcon());
+        AddToolButton(panel, EditorTool.Eraser, GlyphIcon("\uE74D"));
         Sep();
         _undoButton = MakeIconButton("\uE7A7", "Action.Undo", (_, _) => _session.DoUndo());
         _redoButton = MakeIconButton("\uE7A6", "Action.Redo", (_, _) => _session.DoRedo());
@@ -299,9 +317,14 @@ internal sealed class OverlayWindow : Window
         panel.Children.Add(MakeIconButton("\uE73E", "Action.Edit", (_, _) => _session.Confirm(OverlayIntent.Edit)));
         panel.Children.Add(MakeIconButton("\uE711", "Action.Cancel", (_, _) => _session.Cancel()));
 
+        _optionsRow = BuildOptionsBar();
+        var rows = new StackPanel { Orientation = Orientation.Vertical };
+        rows.Children.Add(panel);
+        rows.Children.Add(_optionsRow);
+
         return new Border
         {
-            Child = panel,
+            Child = rows,
             Background = new SolidColorBrush(Color.FromArgb(0xEA, 0x1C, 0x1C, 0x1E)),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(5, 4, 5, 4),
@@ -321,6 +344,267 @@ internal sealed class OverlayWindow : Window
         _toolButtons[tool] = button;
         panel.Children.Add(button);
         return button;
+    }
+
+    // ---- options bar (second toolbar row; one row per active tool) ----
+
+    /// <summary>Builds every tool's option controls once. Values live in the shared
+    /// <see cref="EditorSettings"/> instance, so strokes created afterwards pick them up and they
+    /// survive into the editor; <see cref="OverlaySession.MarkOptionsChanged"/> triggers persistence
+    /// when the session is confirmed.</summary>
+    private WrapPanel BuildOptionsBar()
+    {
+        var row = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 3, 2, 1),
+            Visibility = Visibility.Collapsed,
+        };
+
+        // Stroke thickness presets (2/4/8/14 px) shared by shape/stroke tools; the dot size hints the width.
+        _thicknessOptions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (value, dot) in new[] { (2.0, 4.0), (4.0, 7.0), (8.0, 10.0), (14.0, 14.0) })
+        {
+            var button = MakeOptionButton(DotIcon(dot), "Prop.Thickness", (_, _) => SetOption(e => e.StrokeThickness = value));
+            _thicknessDots.Add((button, value));
+            _thicknessOptions.Children.Add(button);
+        }
+        row.Children.Add(_thicknessOptions);
+
+        _fillToggle = MakeOptionButton(FillIcon(), "Prop.Fill", (_, _) => SetOption(e => e.FillShape = !e.FillShape));
+        row.Children.Add(_fillToggle);
+
+        _dashedToggle = MakeOptionButton(DashedIcon(), "Prop.Dashed", (_, _) => SetOption(e => e.DashedLine = !e.DashedLine));
+        row.Children.Add(_dashedToggle);
+
+        // Text font size presets (14/20/28/40), label glyphs scaled so the numbers read at a glance.
+        _fontOptions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (value, glyph) in new[] { (14.0, 10.0), (20.0, 12.0), (28.0, 14.0), (40.0, 16.0) })
+        {
+            var button = MakeOptionButton(SizeLabel(value.ToString("0"), glyph), "Prop.FontSize", (_, _) => SetOption(e => e.FontSize = value));
+            _fontButtons.Add((button, value));
+            _fontOptions.Children.Add(button);
+        }
+        row.Children.Add(_fontOptions);
+
+        // Step marker radius presets.
+        _stepOptions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (value, dot) in new[] { (10.0, 8.0), (16.0, 11.0), (24.0, 14.0) })
+        {
+            var button = MakeOptionButton(CircleIcon(dot), "Prop.Radius", (_, _) => SetOption(e => e.StepRadius = value));
+            _stepDots.Add((button, value));
+            _stepOptions.Children.Add(button);
+        }
+        row.Children.Add(_stepOptions);
+
+        // Mosaic mode + strength presets.
+        _pixelateToggle = MakeOptionButton(MosaicIcon(), "Prop.Pixelate", (_, _) => SetOption(e => e.MosaicPixelate = true));
+        _blurToggle = MakeOptionButton(BlurIcon(), "Prop.BlurMode", (_, _) => SetOption(e => e.MosaicPixelate = false));
+        _mosaicModeOptions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        _mosaicModeOptions.Children.Add(_pixelateToggle);
+        _mosaicModeOptions.Children.Add(_blurToggle);
+        row.Children.Add(_mosaicModeOptions);
+
+        _mosaicStrengthOptions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (value, dot) in new[] { (4, 5.0), (8, 8.0), (12, 11.0), (24, 14.0) })
+        {
+            var button = MakeOptionButton(DotIcon(dot), "Prop.Strength", (_, _) => SetOption(e => e.MosaicCellSize = value));
+            _mosaicDots.Add((button, value));
+            _mosaicStrengthOptions.Children.Add(button);
+        }
+        row.Children.Add(_mosaicStrengthOptions);
+
+        // Palette from the persisted settings; the swatch matching the current color gets a thicker border.
+        _palettePanel = new WrapPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 0, 0) };
+        foreach (var hex in _session.Editor.Palette)
+        {
+            var sw = new Button
+            {
+                Width = 18,
+                Height = 18,
+                MinWidth = 0,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 0, 3, 0),
+                Background = AnnotationRenderer.BrushFor(hex),
+                BorderBrush = SwatchBorderBrush,
+                BorderThickness = new Thickness(1),
+                Tag = hex,
+                Cursor = Cursors.Hand,
+                Focusable = false,
+                ToolTip = hex,
+            };
+            sw.Click += (_, _) => SetOption(e => e.StrokeColor = hex);
+            _swatches.Add(sw);
+            _palettePanel.Children.Add(sw);
+        }
+        row.Children.Add(_palettePanel);
+        return row;
+    }
+
+    /// <summary>Applies one options-bar change to the shared EditorSettings instance.</summary>
+    private void SetOption(Action<ModernScreenShot.Core.Settings.EditorSettings> apply)
+    {
+        apply(_session.Editor);
+        _session.MarkOptionsChanged();
+        RefreshToolbarState();
+    }
+
+    /// <summary>Shows the option groups of the active tool and syncs their highlights. Select and
+    /// Eraser have no options, so the whole row collapses.</summary>
+    private void UpdateOptionsRow()
+    {
+        var tool = _session.Tool;
+        bool thickness = tool is EditorTool.Rect or EditorTool.Ellipse or EditorTool.Line or EditorTool.Arrow
+            or EditorTool.Pen or EditorTool.Highlighter;
+        bool fill = tool is EditorTool.Rect or EditorTool.Ellipse;
+        bool dashed = tool is EditorTool.Line or EditorTool.Arrow;
+        bool font = tool == EditorTool.Text;
+        bool step = tool == EditorTool.Step;
+        bool mosaic = tool == EditorTool.Mosaic;
+        bool palette = thickness || font || step;
+        var sig = (thickness, fill, dashed, font, step, mosaic, palette);
+
+        SetVisible(_thicknessOptions, thickness);
+        SetVisible(_fillToggle, fill);
+        SetVisible(_dashedToggle, dashed);
+        SetVisible(_fontOptions, font);
+        SetVisible(_stepOptions, step);
+        SetVisible(_mosaicModeOptions, mosaic);
+        SetVisible(_mosaicStrengthOptions, mosaic);
+        SetVisible(_palettePanel, palette);
+        if (sig != _optionsSig)
+        {
+            _optionsSig = sig;
+            _optionsRow.Visibility = sig == default ? Visibility.Collapsed : Visibility.Visible;
+            _toolbarSize = default; // the toolbar's size changed: force a re-measure before positioning
+        }
+        if (sig != default) SyncOptionHighlights();
+    }
+
+    private void SyncOptionHighlights()
+    {
+        var ed = _session.Editor;
+        foreach (var (b, v) in _thicknessDots) b.Background = EqD(v, ed.StrokeThickness) ? ActiveToolBrush : Brushes.Transparent;
+        _fillToggle.Background = ed.FillShape ? ActiveToolBrush : Brushes.Transparent;
+        _dashedToggle.Background = ed.DashedLine ? ActiveToolBrush : Brushes.Transparent;
+        foreach (var (b, v) in _fontButtons) b.Background = EqD(v, ed.FontSize) ? ActiveToolBrush : Brushes.Transparent;
+        foreach (var (b, v) in _stepDots) b.Background = EqD(v, ed.StepRadius) ? ActiveToolBrush : Brushes.Transparent;
+        _pixelateToggle.Background = ed.MosaicPixelate ? ActiveToolBrush : Brushes.Transparent;
+        _blurToggle.Background = ed.MosaicPixelate ? Brushes.Transparent : ActiveToolBrush;
+        foreach (var (b, v) in _mosaicDots) b.Background = v == ed.MosaicCellSize ? ActiveToolBrush : Brushes.Transparent;
+        foreach (var sw in _swatches)
+            sw.BorderThickness = string.Equals((string)sw.Tag, ed.StrokeColor, StringComparison.OrdinalIgnoreCase)
+                ? new Thickness(2)
+                : new Thickness(1);
+    }
+
+    private static bool EqD(double a, double b) => Math.Abs(a - b) < 0.01;
+
+    private static void SetVisible(UIElement el, bool visible) => el.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    private Button MakeOptionButton(FrameworkElement content, string tooltipKey, RoutedEventHandler onClick)
+    {
+        var button = new Button
+        {
+            Width = 24,
+            MinWidth = 0,               // the WPF-UI style inflates buttons; keep the strip compact
+            Padding = new Thickness(0),
+            Height = 24,
+            Margin = new Thickness(1, 0, 1, 0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Foreground = Brushes.White,
+            Focusable = false,
+            Cursor = Cursors.Hand,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = L.Get(tooltipKey),
+        };
+        button.Content = content;
+        button.Click += onClick;
+        return button;
+    }
+
+    private static FrameworkElement DotIcon(double diameter) => new System.Windows.Shapes.Ellipse
+    {
+        Width = diameter,
+        Height = diameter,
+        Fill = Brushes.White,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static FrameworkElement CircleIcon(double diameter) => new System.Windows.Shapes.Ellipse
+    {
+        Width = diameter,
+        Height = diameter,
+        Stroke = Brushes.White,
+        StrokeThickness = 1.6,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static FrameworkElement SizeLabel(string text, double size) => new TextBlock
+    {
+        Text = text,
+        FontFamily = new FontFamily("Segoe UI"),
+        FontSize = size,
+        FontWeight = FontWeights.SemiBold,
+        Foreground = Brushes.White,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static Canvas FillIcon()
+    {
+        var canvas = new Canvas { Width = 18, Height = 18 };
+        canvas.Children.Add(new System.Windows.Shapes.Rectangle
+        {
+            Width = 12,
+            Height = 12,
+            Margin = new Thickness(3),
+            RadiusX = 1,
+            RadiusY = 1,
+            Stroke = Brushes.White,
+            StrokeThickness = 1.5,
+            Fill = FillHintBrush,
+        });
+        return canvas;
+    }
+
+    private static Canvas DashedIcon()
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = Geo(g =>
+            {
+                g.BeginFigure(new Point(2.5, 13.5), false, false);
+                g.LineTo(new Point(15.5, 4.5), true, false);
+            }),
+            Stroke = Brushes.White,
+            StrokeThickness = 1.8,
+            StrokeDashArray = new DoubleCollection { 2.6, 2.2 },
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+        };
+        return new Canvas { Width = 18, Height = 18, Children = { path } };
+    }
+
+    private static Canvas BlurIcon()
+    {
+        var canvas = new Canvas { Width = 18, Height = 18 };
+        for (int i = 0; i < 3; i++)
+        {
+            double size = 14 - i * 4.5;
+            canvas.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Width = size,
+                Height = size,
+                Margin = new Thickness((18 - size) / 2, (18 - size) / 2, 0, 0),
+                Fill = Freeze(new SolidColorBrush(Color.FromArgb((byte)(0x48 + i * 0x46), 0xFF, 0xFF, 0xFF))),
+            });
+        }
+        return canvas;
     }
 
     private Button MakeIconButton(string? glyph, string tooltipKey, RoutedEventHandler onClick)
@@ -358,7 +642,7 @@ internal sealed class OverlayWindow : Window
     private Button? ActiveToolButton() =>
         _session.Tool is { } tool && _toolButtons.TryGetValue(tool, out var b) ? b : null;
 
-    /// <summary>Syncs tool highlight and undo/redo enablement with the session state.</summary>
+    /// <summary>Syncs tool highlight, undo/redo enablement and the options row with the session state.</summary>
     private void RefreshToolbarState()
     {
         var active = ActiveToolButton();
@@ -366,6 +650,7 @@ internal sealed class OverlayWindow : Window
             button.Background = ReferenceEquals(button, active) ? ActiveToolBrush : Brushes.Transparent;
         _undoButton.IsEnabled = _session.Undo.CanUndo;
         _redoButton.IsEnabled = _session.Undo.CanRedo;
+        UpdateOptionsRow();
     }
 
     // icon factories — plain shapes/text so no exotic glyphs are needed
@@ -491,9 +776,12 @@ internal sealed class OverlayWindow : Window
             _toolbarHost.Visibility = Visibility.Visible;
             _toolbarShown = true;
         }
-        // Measure once; the toolbar content never changes size, so cache it and only move the transform.
-        // MaxWidth forces the WrapPanel onto a second row when the window is too narrow — otherwise
-        // the right-hand buttons (copy/save/pin/confirm/cancel) would be clipped off-window.
+        // Refresh first: toggling the options row can invalidate the cached size, which must then be
+        // re-measured below in the same pass so the toolbar is never positioned with a stale size.
+        RefreshToolbarState();
+        // Measure once per size; the toolbar only changes size when the options row appears/disappears
+        // (see _optionsSig) or the window is resized. MaxWidth forces each WrapPanel row to wrap when
+        // the window is too narrow — otherwise the right-hand buttons would be clipped off-window.
         if (_toolbarSize.Width <= 0)
         {
             _toolbarHost.MaxWidth = Math.Max(120, ActualWidth - 8);
@@ -509,7 +797,6 @@ internal sealed class OverlayWindow : Window
         y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
         _toolbarOffset.X = x;
         _toolbarOffset.Y = y;
-        RefreshToolbarState();
     }
 
     // ---- inline annotation UI ----

@@ -95,6 +95,11 @@ public sealed class EditorSettings
     public int BlurRadius { get; set; } = 10;
     public double SpotlightDim { get; set; } = 0.6;
     public double MagnifierZoom { get; set; } = 2.5;
+    public bool FillShape { get; set; }
+    public bool DashedLine { get; set; }
+    public bool FontBold { get; set; }
+    public double StepRadius { get; set; } = 16;
+    public bool MosaicPixelate { get; set; } = true;
     public List<string> Palette { get; set; } =
         ["#FFFF3B30", "#FFFF9500", "#FFFFCC00", "#FF34C759", "#FF007AFF", "#FF5856D6", "#FFAF52DE", "#FFFFFFFF", "#FF8E8E93", "#FF000000"];
 }

@@ -10,7 +10,7 @@ using ModernScreenShot.Core.Settings;
 
 namespace ModernScreenShot.App.Editor;
 
-public enum EditorTool { Select, Rect, Ellipse, Line, Arrow, Pen, Text, Step, Highlighter, Mosaic, Blur, Spotlight, Magnifier, Crop }
+public enum EditorTool { Select, Rect, Ellipse, Line, Arrow, Pen, Text, Step, Highlighter, Mosaic, Blur, Spotlight, Magnifier, Crop, Eraser }
 
 internal enum CanvasMode { Idle, Drawing, Moving, Resizing, Panning, CropDraft, CropResize }
 internal enum CanvasHandle { None, N, S, E, W, NW, NE, SW, SE, Body }
@@ -98,6 +98,8 @@ public sealed class AnnotationCanvas : FrameworkElement
     public bool SpotlightElliptical { get; set; }
     public double SpotlightDim { get; set; } = 0.6;
     public double MagnifierZoom { get; set; } = 2.5;
+    public double StepRadius { get; set; } = 16;
+    private bool _erasedAny; // eraser stroke: at least one committed item was deleted
 
     // ---- public operations ----
 
@@ -203,6 +205,7 @@ public sealed class AnnotationCanvas : FrameworkElement
         {
             case CanvasMode.Drawing:
                 _preview = null;
+                _erasedAny = false;
                 _pendingSnapshot = null;
                 _mode = CanvasMode.Idle;
                 InvalidateVisual();
@@ -555,6 +558,7 @@ public sealed class AnnotationCanvas : FrameworkElement
             case EditorTool.Text: TextEditRequested?.Invoke(this, new TextEditRequestEventArgs(null, img)); break;
             case EditorTool.Step: AddStep(img); break;
             case EditorTool.Crop: BeginCrop(img); break;
+            case EditorTool.Eraser: BeginErase(img); break;
             default: BeginDraw(img); break;
         }
         if (_mode != CanvasMode.Idle) CaptureMouse();
@@ -641,11 +645,46 @@ public sealed class AnnotationCanvas : FrameworkElement
     private void AddStep(PointD img)
     {
         BeginEdit();
-        var step = new StepItem { Center = img, Radius = 16, StrokeColor = StrokeColor, Number = _doc.NextStepNumber() };
+        var step = new StepItem { Center = img, Radius = StepRadius, StrokeColor = StrokeColor, Number = _doc.NextStepNumber() };
         _doc.Items.Add(step);
         _doc.RenumberSteps();
         CommitEdit();
         Select(step);
+    }
+
+    // ---- eraser ----
+
+    /// <summary>Starts an eraser stroke: one drag = one undo record, deletions happen live.</summary>
+    private void BeginErase(PointD img)
+    {
+        _mode = CanvasMode.Drawing;
+        _erasedAny = false;
+        _pendingSnapshot ??= UndoStack.Serialize(_doc);
+        EraseAt(img);
+    }
+
+    private void EraseAt(PointD img)
+    {
+        for (int i = _doc.Items.Count - 1; i >= 0; i--) // topmost first
+        {
+            var item = _doc.Items[i];
+            var b = item.GetBounds();
+            double tol = Math.Max(4, item.StrokeThickness / 2);
+            if (img.X < b.X - tol || img.X > b.Right + tol || img.Y < b.Y - tol || img.Y > b.Bottom + tol) continue;
+            _doc.Items.RemoveAt(i);
+            if (item is StepItem) _doc.RenumberSteps();
+            if (item is MosaicItem) RecomputeMosaic();
+            if (ReferenceEquals(_selected, item)) Select(null);
+            _erasedAny = true;
+            InvalidateVisual();
+            break;
+        }
+    }
+
+    private void FinishErase()
+    {
+        if (_erasedAny) CommitEdit();
+        else _pendingSnapshot = null; // nothing was hit: no undo entry
     }
 
     private void BeginCrop(PointD img)
@@ -700,6 +739,9 @@ public sealed class AnnotationCanvas : FrameworkElement
                     ScrollOwner.ScrollToVerticalOffset(_panOffsetY - (screen.Y - _panOrigin.Y));
                 }
                 return;
+            case CanvasMode.Drawing when Tool == EditorTool.Eraser:
+                EraseAt(img);
+                break;
             case CanvasMode.Drawing:
                 UpdatePreview(img);
                 break;
@@ -830,6 +872,9 @@ public sealed class AnnotationCanvas : FrameworkElement
 
         switch (_mode)
         {
+            case CanvasMode.Drawing when Tool == EditorTool.Eraser:
+                FinishErase();
+                break;
             case CanvasMode.Drawing:
                 CommitPreview();
                 break;
@@ -855,7 +900,14 @@ public sealed class AnnotationCanvas : FrameworkElement
 
     private void CommitPreview()
     {
-        if (_preview is not { } item) return;
+        if (_preview is null)
+        {
+            // Only reachable when the tool was switched mid-stroke (e.g. an eraser drag): discard
+            // the pre-stroke snapshot so it cannot fold into the next unrelated undo entry.
+            _pendingSnapshot = null;
+            return;
+        }
+        var item = _preview;
         bool valid = item switch
         {
             PenItem pen => pen.Points.Count >= 2,

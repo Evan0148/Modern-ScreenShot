@@ -94,6 +94,7 @@
     <sys:String x:Key="Tool.Spotlight">Spotlight (S)</sys:String>
     <sys:String x:Key="Tool.Magnifier">Magnifier (G)</sys:String>
     <sys:String x:Key="Tool.Crop">Crop (C)</sys:String>
+    <sys:String x:Key="Tool.Eraser">Eraser (X)</sys:String>
 
     <!-- Properties -->
     <sys:String x:Key="Prop.Color">Color</sys:String>
@@ -115,6 +116,7 @@
     <sys:String x:Key="Prop.ShapeEllipse">Ellipse</sys:String>
     <sys:String x:Key="Prop.Dim">Dim</sys:String>
     <sys:String x:Key="Prop.Shape">Shape</sys:String>
+    <sys:String x:Key="Prop.Radius">Radius</sys:String>
 
     <!-- Effects -->
     <sys:String x:Key="Effects.Title">Effects</sys:String>
@@ -226,6 +228,7 @@
     <sys:String x:Key="Editor.UnsavedBody">This screenshot hasn't been copied or saved. It stays in History.</sys:String>
     <sys:String x:Key="Editor.SelectHint">Click an annotation to select it, then drag, resize or delete it. Double-click text to edit it.</sys:String>
     <sys:String x:Key="Editor.CropHint">Drag to choose a crop area, then press Enter or double-click to apply. Esc cancels; press Esc again to remove an applied crop.</sys:String>
+    <sys:String x:Key="Editor.EraserHint">Drag over an annotation to delete it.</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>

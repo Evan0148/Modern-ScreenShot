@@ -73,7 +73,8 @@ public sealed class CaptureService
         var frozen = _screen.Capture(vs, includeCursor: false);
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(mode, frozen, vs, frozen.ToBitmapSource(), _monitors, _windows,
-            _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor);
+            _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor,
+            persistEditorOptions: () => _settings.Save());
         session.Doc.Effects = _settings.Current.Effects.Clone();
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed)
@@ -161,7 +162,8 @@ public sealed class CaptureService
         var frozen = _screen.Capture(vs, includeCursor: false);
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(CaptureMode.Region, frozen, vs, frozen.ToBitmapSource(), _monitors,
-            _windows, _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor, autoConfirmOnSelect: true);
+            _windows, _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor, autoConfirmOnSelect: true,
+            persistEditorOptions: () => _settings.Save());
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed || outcome.Region.IsEmpty) return null;
         return outcome.Region;

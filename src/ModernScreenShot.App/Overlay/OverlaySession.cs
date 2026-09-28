@@ -88,6 +88,9 @@ internal sealed class OverlaySession
     private OverlayOutcome? _outcome;
     private bool _ended;
     private readonly bool _autoConfirm;
+    private readonly Action? _persistEditorOptions; // saves settings.json when options changed (invoked on confirm)
+    private bool _erasing;                          // eraser stroke in progress (one drag = one undo record)
+    private bool _erasedAny;                        // eraser stroke deleted at least one item
     private DateTime _colorFlashUntil = DateTime.MinValue;
 
     internal PixelBuffer Frozen { get; }
@@ -121,16 +124,20 @@ internal sealed class OverlaySession
     internal AnnotationItem? PreviewItem => _drawPreview;
     internal double EditorFontSize => _editor.FontSize;
     internal string EditorFontFamily => _editor.FontFamily;
-    /// <summary>Bold text is not configurable yet; the editor starts unbolded as well.</summary>
-    internal bool EditorFontBold => false;
+    internal bool EditorFontBold => _editor.FontBold;
     internal string EditorStrokeColor => _editor.StrokeColor;
+    /// <summary>Shared last-used annotation options; the overlay options bar writes into this instance.</summary>
+    internal EditorSettings Editor => _editor;
+    /// <summary>True once the user touched any option in the overlay options bar (persisted on confirm).</summary>
+    private bool _optionsDirty;
+    internal void MarkOptionsChanged() => _optionsDirty = true;
     /// <summary>Inline annotation is available: region mode, a selection exists, toolbar visible.</summary>
     internal bool CanAnnotate => !_autoConfirm && Mode == CaptureMode.Region
         && _state == OverlayState.Selected && !_selection.IsEmpty;
 
     public OverlaySession(CaptureMode mode, PixelBuffer frozen, PixelRect virtualScreen, BitmapSource frozenSource,
         MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled, EditorSettings editor,
-        bool autoConfirmOnSelect = false)
+        bool autoConfirmOnSelect = false, Action? persistEditorOptions = null)
     {
         Mode = mode is CaptureMode.Region or CaptureMode.WindowPick ? mode : CaptureMode.Region;
         Frozen = frozen;
@@ -141,6 +148,7 @@ internal sealed class OverlaySession
         _editor = editor;
         MagnifierEnabled = magnifierEnabled;
         _autoConfirm = autoConfirmOnSelect;
+        _persistEditorOptions = persistEditorOptions;
     }
 
     /// <summary>Shows one overlay per monitor and pumps the dispatcher until the session ends.</summary>
@@ -203,6 +211,9 @@ internal sealed class OverlaySession
             case OverlayState.Selected when _drawPreview is not null:
                 UpdateDraw(p);
                 break;
+            case OverlayState.Selected when _erasing:
+                EraseAt(ToImage(p));
+                break;
             case OverlayState.Selected when _drag is DragAction.Move or DragAction.Resize:
                 // Handle/body presses from OnLeftDown set _drag while staying in Selected.
                 UpdateDrag(p);
@@ -259,6 +270,12 @@ internal sealed class OverlaySession
         _cursor = p;
         _cursorValid = true;
         // Releasing an annotation stroke never confirms/cancels the session.
+        if (_erasing)
+        {
+            FinishErase();
+            InvalidateAll();
+            return;
+        }
         if (_drawPreview is not null)
         {
             CommitDraw();
@@ -323,7 +340,7 @@ internal sealed class OverlaySession
                 CopyCursorColor();
                 InvalidateAll();
                 return true;
-            case Key.V or Key.R or Key.E or Key.L or Key.A or Key.P or Key.H or Key.T or Key.N or Key.M
+            case Key.V or Key.R or Key.E or Key.L or Key.A or Key.P or Key.H or Key.T or Key.N or Key.M or Key.X
                 when CanAnnotate && Keyboard.Modifiers == ModifierKeys.None:
                 Tool = KeyToTool(key);
                 return true;
@@ -347,6 +364,20 @@ internal sealed class OverlaySession
     internal void Confirm(OverlayIntent intent)
     {
         if (_selection.IsEmpty) return;
+        // Remember the options the user changed in the options bar ("last used" behavior). A failed
+        // save must never abort the capture the user just confirmed.
+        if (_optionsDirty && _persistEditorOptions is { } persist)
+        {
+            _optionsDirty = false;
+            try
+            {
+                persist();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Persisting overlay editor options failed", ex);
+            }
+        }
         Doc.ImageWidth = _selection.Width;
         Doc.ImageHeight = _selection.Height;
         EndSession(new OverlayOutcome
@@ -484,6 +515,7 @@ internal sealed class OverlaySession
         Key.T => EditorTool.Text,
         Key.N => EditorTool.Step,
         Key.M => EditorTool.Mosaic,
+        Key.X => EditorTool.Eraser,
         _ => null,
     };
 
@@ -508,23 +540,31 @@ internal sealed class OverlaySession
             case EditorTool.Step:
             {
                 _pendingSnapshot ??= UndoStack.Serialize(Doc);
-                var step = new StepItem { Center = img, Radius = 16, StrokeColor = _editor.StrokeColor, Number = Doc.NextStepNumber() };
+                var step = new StepItem { Center = img, Radius = _editor.StepRadius, StrokeColor = _editor.StrokeColor, Number = Doc.NextStepNumber() };
                 Doc.Items.Add(step);
                 Doc.RenumberSteps();
                 FinishSnapshot();
                 return;
             }
+            case EditorTool.Eraser:
+                StartErase(img);
+                return;
         }
         _pendingSnapshot ??= UndoStack.Serialize(Doc);
         _drawPreview = Tool switch
         {
-            EditorTool.Rect => new RectItem { Rect = new RectD(img.X, img.Y, 0, 0) },
-            EditorTool.Ellipse => new EllipseItem { Rect = new RectD(img.X, img.Y, 0, 0) },
-            EditorTool.Line => new LineItem { Start = img, End = img },
-            EditorTool.Arrow => new ArrowItem { Start = img, End = img },
+            EditorTool.Rect => new RectItem { Rect = new RectD(img.X, img.Y, 0, 0), Filled = _editor.FillShape, FillColor = AnnotationCanvas.FillColorFor(_editor.StrokeColor) },
+            EditorTool.Ellipse => new EllipseItem { Rect = new RectD(img.X, img.Y, 0, 0), Filled = _editor.FillShape, FillColor = AnnotationCanvas.FillColorFor(_editor.StrokeColor) },
+            EditorTool.Line => new LineItem { Start = img, End = img, Dashed = _editor.DashedLine },
+            EditorTool.Arrow => new ArrowItem { Start = img, End = img, Dashed = _editor.DashedLine },
             EditorTool.Pen => new PenItem { Points = [img] },
             EditorTool.Highlighter => new HighlighterItem { Points = [img] },
-            EditorTool.Mosaic => new MosaicItem { Mode = MosaicMode.Pixelate, Strength = _editor.MosaicCellSize, Rect = new RectD(img.X, img.Y, 0, 0) },
+            EditorTool.Mosaic => new MosaicItem
+            {
+                Mode = _editor.MosaicPixelate ? MosaicMode.Pixelate : MosaicMode.Blur,
+                Strength = _editor.MosaicCellSize,
+                Rect = new RectD(img.X, img.Y, 0, 0),
+            },
             _ => null,
         };
         if (_drawPreview is not null) ApplyCommonProps(_drawPreview);
@@ -607,7 +647,7 @@ internal sealed class OverlaySession
             Position = position,
             Text = text,
             FontSize = _editor.FontSize,
-            Bold = false,
+            Bold = _editor.FontBold,
             StrokeColor = _editor.StrokeColor,
         };
         AnnotationCanvas.MeasureTextItem(item);
@@ -615,16 +655,49 @@ internal sealed class OverlaySession
         FinishSnapshot();
     }
 
+    // ---- eraser (drag over committed items to delete them; one drag = one undo record) ----
+
+    private void StartErase(PointD img)
+    {
+        _erasing = true;
+        _erasedAny = false;
+        _pendingSnapshot ??= UndoStack.Serialize(Doc);
+        EraseAt(img);
+    }
+
+    private void EraseAt(PointD img)
+    {
+        for (int i = Doc.Items.Count - 1; i >= 0; i--) // topmost first
+        {
+            var item = Doc.Items[i];
+            var b = item.GetBounds();
+            double tol = Math.Max(4, item.StrokeThickness / 2);
+            if (img.X < b.X - tol || img.X > b.Right + tol || img.Y < b.Y - tol || img.Y > b.Bottom + tol) continue;
+            Doc.Items.RemoveAt(i);
+            if (item is StepItem) Doc.RenumberSteps();
+            if (item is MosaicItem) RecomputeMosaic();
+            _erasedAny = true;
+            break;
+        }
+    }
+
+    private void FinishErase()
+    {
+        _erasing = false;
+        if (_erasedAny) FinishSnapshot();
+        else _pendingSnapshot = null; // nothing was hit: no undo entry
+    }
+
     internal void DoUndo()
     {
-        if (_drawPreview is not null) return;
+        if (_drawPreview is not null || _erasing) return;
         var d = Undo.Undo(Doc);
         if (d is not null) ReplaceDoc(d);
     }
 
     internal void DoRedo()
     {
-        if (_drawPreview is not null) return;
+        if (_drawPreview is not null || _erasing) return;
         var d = Undo.Redo(Doc);
         if (d is not null) ReplaceDoc(d);
     }
@@ -657,9 +730,15 @@ internal sealed class OverlaySession
     private void ApplyCommonProps(AnnotationItem item)
     {
         item.StrokeColor = _editor.StrokeColor;
-        if (item is HighlighterItem) item.Opacity = 0.45;
+        if (item is HighlighterItem)
+        {
+            item.Opacity = 0.45;
+            item.StrokeThickness = _editor.StrokeThickness; // the thickness dots cover the highlighter too
+        }
         else if (item is not MosaicItem and not TextItem and not StepItem)
+        {
             item.StrokeThickness = _editor.StrokeThickness;
+        }
     }
 
     /// <summary>Pixels the committed (and in-flight) mosaic rects into a cached copy of the selection crop.</summary>

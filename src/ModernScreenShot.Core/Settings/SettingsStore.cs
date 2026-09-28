@@ -84,6 +84,7 @@ public sealed class SettingsStore
         s.Editor.BlurRadius = Math.Clamp(s.Editor.BlurRadius, 1, 100);
         s.Editor.StrokeThickness = Math.Clamp(s.Editor.StrokeThickness, 1, 60);
         s.Editor.FontSize = Math.Clamp(s.Editor.FontSize, 8, 144);
+        s.Editor.StepRadius = Math.Clamp(s.Editor.StepRadius, 4, 100);
         // Effect values are persisted and feed unchecked dimension math downstream; clamps are
         // deliberately wider than the UI sliders so UI-chosen values are never altered.
         var shadow = s.Effects.Shadow;

@@ -6,3 +6,7 @@ bin/
 obj/
 publish/
 tools/Harness/out/
+
+# local verification artifacts
+tools/verify_out/
+tools/verify_*.ps1
