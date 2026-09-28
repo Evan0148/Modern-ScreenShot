@@ -22,6 +22,14 @@ public sealed class HotkeyRecorder : Button
 
     public HotkeyRecorder()
     {
+        // WPF resolves implicit styles (including WPF-UI's themed Button style, keyed by
+        // {x:Type Button}) by the element's exact runtime type. A Button subclass therefore does
+        // NOT inherit that style and falls back to the default OS (Aero) style: a light-gray button
+        // that ignores the theme and looks broken / unreadable on a Dark settings window (the
+        // reported bug). A DynamicResource reference to the base Button style pulls in the themed
+        // style and keeps updating it when the theme changes at runtime.
+        SetResourceReference(StyleProperty, typeof(Button));
+
         MinWidth = 140;
         HorizontalContentAlignment = HorizontalAlignment.Center;
         Cursor = Cursors.Hand;
