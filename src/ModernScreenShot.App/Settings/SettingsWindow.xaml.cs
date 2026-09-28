@@ -131,6 +131,22 @@ public partial class SettingsWindow : Window
         HistoryMaxBox.Text = _settings.Current.HistoryMaxCount.ToString(CultureInfo.InvariantCulture);
     }
 
+    private void OnMacShadowChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        // Apply immediately: the window otherwise persists only on close, and users toggling this
+        // expect the very next capture to include the shadow.
+        _settings.Current.Capture.MacStyleWindowShadow = MacShadowBox.IsChecked == true;
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Saving settings failed", ex);
+        }
+    }
+
     private void LoadOutputTab()
     {
         var output = _settings.Current.Output;

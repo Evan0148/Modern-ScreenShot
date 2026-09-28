@@ -114,16 +114,15 @@ public sealed class CaptureService
             var image = _windowCapturer.CaptureWindow(outcome.WindowHandle, transparentCorners, out var title);
             if (image is not null)
             {
-                var windowDoc = ApplyMacStyleIfEnabled(doc, image, CaptureMode.WindowPick, title);
+                var windowDoc = ApplyMacStyleIfEnabled(doc, image, CaptureMode.WindowPick, title, out var bakedImage);
                 return new CaptureResult
                 {
-                    Image = image,
+                    Image = bakedImage,
                     Mode = CaptureMode.WindowPick,
                     WindowTitle = title,
                     SourceRect = outcome.PickedWindow?.Bounds ?? outcome.Region,
                     RequestedAction = MapIntent(outcome.Intent),
                     AnnotationDocument = windowDoc,
-                    BakeEffectsOnDirectOutput = macStyle,
                 };
             }
             Log.Warn("Window capture failed after picking; falling back to the frozen region crop.");
@@ -191,38 +190,51 @@ public sealed class CaptureService
             Log.Warn("Active window capture returned no image.");
             return null;
         }
-        var doc = ApplyMacStyleIfEnabled(null, image, CaptureMode.ActiveWindow, title);
+        var doc = ApplyMacStyleIfEnabled(null, image, CaptureMode.ActiveWindow, title, out var bakedImage);
         return new CaptureResult
         {
-            Image = image,
+            Image = bakedImage,
             Mode = CaptureMode.ActiveWindow,
             WindowTitle = title,
             SourceRect = bounds,
             AnnotationDocument = doc,
-            BakeEffectsOnDirectOutput = macStyle,
         };
     }
 
     /// <summary>
-    /// When macOS-style window shadow is enabled, returns an <see cref="AnnotationDocument"/> whose
-    /// <see cref="AnnotationDocument.Effects"/> is a fresh SoftFloat preset (soft shadow + transparent
-    /// surround). Existing inline annotations are preserved; only their Effects are set. This does NOT
-    /// touch the persisted <c>store.Current.Effects</c>, so a user's effect preference for ordinary
-    /// captures is never overwritten. When disabled, the caller's document passes through unchanged.
+    /// When macOS-style window shadow is enabled, bakes the SoftFloat preset (soft drop shadow over a
+    /// transparent surround) into the returned image so the result is what-you-see-is-what-you-get in
+    /// the editor canvas, pin, clipboard, saved files and history. The document's Effects are stored
+    /// disabled with <see cref="AnnotationDocument.EffectsBaked"/> set, so exports never compose them
+    /// again and the editor close hook does not leak them into the user's global effect preferences.
+    /// Window picks carry no inline annotations (the overlay toolbar is region-only), so shifting item
+    /// coordinates for the padding is not a concern. When disabled, the inputs pass through unchanged.
     /// </summary>
-    private AnnotationDocument? ApplyMacStyleIfEnabled(AnnotationDocument? doc, PixelBuffer image, CaptureMode mode, string? title)
+    private AnnotationDocument? ApplyMacStyleIfEnabled(AnnotationDocument? doc, PixelBuffer image, CaptureMode mode, string? title, out PixelBuffer bakedImage)
     {
+        bakedImage = image;
         if (!_settings.Current.Capture.MacStyleWindowShadow) return doc;
+        var effects = BuiltInPresets.SoftFloat().Settings;
+        try
+        {
+            bakedImage = EffectPipeline.Compose(image, effects); // Compose itself early-returns when disabled
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Baking the macOS-style shadow failed; keeping the clean window capture.", ex);
+            return doc;
+        }
+        effects.Enabled = false;
         doc ??= new AnnotationDocument
         {
-            ImageWidth = image.Width,
-            ImageHeight = image.Height,
+            ImageWidth = bakedImage.Width,
+            ImageHeight = bakedImage.Height,
             WindowTitle = title,
             CaptureMode = mode.ToString(),
         };
-        var effects = BuiltInPresets.SoftFloat().Settings;
-        effects.Enabled = true;
         doc.Effects = effects;
+        doc.EffectsBaked = true;
+        Log.Info($"macOS-style shadow baked into {mode} capture ({bakedImage.Width}x{bakedImage.Height}).");
         return doc;
     }
 

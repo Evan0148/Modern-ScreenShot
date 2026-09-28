@@ -360,20 +360,6 @@ public partial class App
                 image = result.Image;
             }
         }
-        // macOS-style window shots must carry their transparent shadow into direct outputs (copy/save/pin),
-        // which otherwise never run the effect pipeline. Ordinary captures leave the flag off, so their
-        // direct output stays a clean crop.
-        if (result.BakeEffectsOnDirectOutput && doc is not null && doc.Effects.Enabled)
-        {
-            try
-            {
-                image = EffectPipeline.Compose(image, doc.Effects);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Applying the macOS-style shadow effect failed; exporting without it.", ex);
-            }
-        }
         return image;
     }
 

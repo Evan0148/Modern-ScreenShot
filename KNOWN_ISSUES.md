@@ -6,7 +6,7 @@
 本轮四项，均通过客观门禁（构建 0/0、harness 31/31、i18n 206 键齐平、--smoke 0 含 publish 产物）。
 
 - **每工具二级选项条 + 橡皮擦（1f62468）**：overlay 主工具条下方按当前工具浮出选项行（粗细/填充/虚线/加粗预设、字号、序号半径、马赛克模式与强度、调色板）；选择/橡皮擦不显示。橡皮擦（`X`）在 overlay 与编辑器均可用，拖过标注即删、一次拖动一步撤销。选项写入 `EditorSettings`（新增 FillShape/DashedLine/FontBold/StepRadius/MosaicPixelate 字段，向后兼容默认值，StepRadius 在 Normalize 钳制），确认/关闭时保存，"记住上次样式"。**订正**：下方"Snipaste 式内联标注 v1 限制"里的"无橡皮擦/单项删除"已不再成立。
-- **仿 macOS 窗口阴影（a6c2ba0）**：新增捕获设置 `MacStyleWindowShadow`（默认关）。开启后「当前窗口 / 选择窗口」强制透明圆角并附 SoftFloat 效果预设（透明四周 + 柔和投影）；直接复制/保存/贴图经 `ImageWithAnnotations` 里的 `EffectPipeline.Compose` 烘焙阴影（受新 `CaptureResult.BakeEffectsOnDirectOutput` 标志控制，普通截图不受影响、也不污染用户的 `store.Current.Effects` 偏好）。
+- **仿 macOS 窗口阴影（a6c2ba0，同日修正）**：新增捕获设置 `MacStyleWindowShadow`（默认关，**勾选即时保存生效**）。开启后「当前窗口 / 选择窗口」强制透明圆角并**在截图瞬间把 SoftFloat 预设（透明四周+柔和投影）烘焙进像素**——编辑器画布/贴图/复制/保存/历史全部所见即所得。初版实现只把效果挂在 `doc.Effects` 上、导出时才合成，导致编辑器画布里看不到阴影（用户反馈"没有效果"的直接原因；另两个叠加因素：设置窗口是关窗才落盘的单一保存点、区域截图设计上不套用）。修正：`AnnotationDocument.EffectsBaked` 标记烘焙文档（doc.Effects 存为禁用态，导出不再二次合成；编辑器关闭时不把该禁用态回写进全局效果偏好，避免污染普通截图）。原 `CaptureResult.BakeEffectsOnDirectOutput` 直出合成路径已删除。
 - **仿 macOS 浮动缩略图（bd82ea9）**：新增截图后动作 `FloatingThumbnail`（枚举末尾追加，区域/其他两处 ComboBox 各加第 6 项）。截图后右下角滑入小卡片，点击进编辑器、拖动移位、右键复制/保存/贴图/关闭、悬停暂停约 6 秒自动消失倒计时，超时按 AutoSave/AutoCopy 落地。`FloatingThumbnailWindow` 是纯视图（终端动作全为注入回调），加入 `EditorWindows` 复用存活机制，Closed 里解绑全部事件。
 - **主题 UI 缺陷修复（515b10a）**：用户报"跟随系统下快捷键框无法正常显示"。**根因**：`HotkeyRecorder : Button`，WPF 隐式样式按精确运行时类型解析，Button 子类拿不到 WPF-UI 主题化 Button 样式、回退到 OS 默认浅灰 Aero 底，在暗色设置窗口上撞色不可读。**修复**：构造函数 `SetResourceReference(StyleProperty, typeof(Button))` 拉入主题样式并随运行时切主题实时更新。用应用内 RenderTargetBitmap 做过对比度断言（禁用修复→暗色下浅灰、67 光斑=FAIL；恢复→暗色 38、0 光斑=PASS）。
 

@@ -14,6 +14,10 @@ public sealed class AnnotationDocument
     /// <summary>Non-destructive crop in base image pixels; null = full image.</summary>
     public PixelRect? Crop { get; set; }
     public EffectSettings Effects { get; set; } = new();
+    /// <summary>True when the effect pipeline already baked the composed result into the stored base
+    /// image (macOS-style window shots). Exports must not compose <see cref="Effects"/> again and the
+    /// editor must not write these (disabled) effects back to the global preference.</summary>
+    public bool EffectsBaked { get; set; }
     public string? WindowTitle { get; set; }
     public string? CaptureMode { get; set; }
 

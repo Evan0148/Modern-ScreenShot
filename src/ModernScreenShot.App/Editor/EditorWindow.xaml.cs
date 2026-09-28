@@ -993,8 +993,10 @@ public partial class EditorWindow : Window
     {
         CloseTextOverlay(commit: false);
         _previewTimer.Stop();
-        // Remember the last-used effect settings for the next capture.
-        _settings.Current.Effects = _canvas.Document.Effects.Clone();
+        // Remember the last-used effect settings for the next capture. macOS-style window shots carry
+        // baked-in (disabled) effects that must not leak into the global preference.
+        if (!_canvas.Document.EffectsBaked)
+            _settings.Current.Effects = _canvas.Document.Effects.Clone();
         // Remember the last-used annotation tool options as well (mirrors the overlay options bar).
         var ed = _settings.Current.Editor;
         ed.StrokeColor = _canvas.StrokeColor;

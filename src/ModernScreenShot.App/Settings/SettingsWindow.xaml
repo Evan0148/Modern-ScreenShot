@@ -99,7 +99,8 @@
                     <CheckBox Grid.Row="3" Grid.Column="1" x:Name="TransparentCornersBox" Margin="0,8,0,4"
                               Content="{DynamicResource Settings.TransparentCorners}"/>
                     <CheckBox Grid.Row="4" Grid.Column="1" x:Name="MacShadowBox" Margin="0,8,0,4"
-                              Content="{DynamicResource Settings.MacShadow}"/>
+                              Content="{DynamicResource Settings.MacShadow}"
+                              Checked="OnMacShadowChanged" Unchecked="OnMacShadowChanged"/>
                     <TextBlock Grid.Row="5" Grid.Column="0" Style="{StaticResource FormLabel}"
                                Text="{DynamicResource Settings.HistoryMax}"/>
                     <TextBox Grid.Row="5" Grid.Column="1" x:Name="HistoryMaxBox" Width="80"
