@@ -76,8 +76,10 @@ public partial class App
         }
 
         if (ParseCaptureArg(args) is { } mode) RunCapture(mode);
-        // Hidden diagnostic switch: opens the settings window on startup (used for UI verification runs).
+        // Hidden diagnostic switches: open specific windows on startup (used for UI verification runs).
         if (StartupArgs.Any(a => string.Equals(a, "--show-settings", StringComparison.OrdinalIgnoreCase))) OpenSettings();
+        if (StartupArgs.Any(a => string.Equals(a, "--show-history", StringComparison.OrdinalIgnoreCase))) OpenHistory();
+        if (StartupArgs.Any(a => string.Equals(a, "--show-editor", StringComparison.OrdinalIgnoreCase))) ShowDiagnosticEditor();
         if (!TrayStarted && EditorWindows.Count == 0) Shutdown(0);
     }
 
@@ -402,8 +404,33 @@ public partial class App
         Log.Info("History window opened.");
     }
 
-    private void OnEditorClosed(object? sender, EventArgs e)
+    /// <summary>Synthetic capture for the --show-editor diagnostic switch (UI verification without a real capture).</summary>
+    private void ShowDiagnosticEditor()
     {
+        const int w = 960, h = 600;
+        var image = new PixelBuffer(w, h);
+        for (int y = 0; y < h; y++)
+        {
+            var row = image.Row(y);
+            for (int x = 0; x < w; x++)
+            {
+                int i = x * 4;
+                row[i] = (byte)(x * 255 / w);          // B
+                row[i + 1] = (byte)(y * 255 / h);      // G
+                row[i + 2] = (byte)(160 - x * 80 / w); // R
+                row[i + 3] = 255;
+            }
+        }
+        OpenEditor(new CaptureResult
+        {
+            Image = image,
+            Mode = CaptureMode.Region,
+            WindowTitle = "Diagnostic",
+            SourceRect = new PixelRect(0, 0, w, h),
+        });
+    }
+
+    private void OnEditorClosed(object? sender, EventArgs e)    {
         if (sender is Window w) EditorWindows.Remove(w);
         if (EditorWindows.Count == 0 && !TrayStarted) Shutdown(0);
     }

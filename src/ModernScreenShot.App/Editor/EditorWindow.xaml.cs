@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -50,6 +51,7 @@ public partial class EditorWindow : Window
         _textSection = null!, _mosaicSection = null!, _spotlightSection = null!, _magnifierSection = null!, _hintSection = null!;
     private TextBlock _hintText = null!;
     private Button _undoButton = null!, _redoButton = null!, _deleteButton = null!, _frontButton = null!, _backButton = null!;
+    private readonly Dictionary<Slider, DockPanel> _sliderRows = [];
     private Button _effectsButton = null!, _openFolderButton = null!;
     private TextBlock _zoomLabel = null!, _statusLabel = null!;
     private EffectsPanel _effectsPanel = null!;
@@ -117,7 +119,9 @@ public partial class EditorWindow : Window
 
     private void BuildToolbar()
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        // WrapPanel: 14 tools overflow a single line at the default window width, which made the
+        // last tools (Spotlight/Magnifier/Crop) unreachable.
+        var panel = new WrapPanel();
         foreach (var (tool, key) in new[]
         {
             (EditorTool.Select, "Tool.Select"), (EditorTool.Rect, "Tool.Rect"), (EditorTool.Ellipse, "Tool.Ellipse"),
@@ -181,7 +185,7 @@ public partial class EditorWindow : Window
         _colorSection.Children.Add(_palette);
         var hexRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
         hexRow.Children.Add(new TextBlock { Text = L.Get("Prop.Hex"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-        _hexBox = new TextBox { Width = 92, Text = _canvas.StrokeColor };
+        _hexBox = new TextBox { Width = 110, Text = _canvas.StrokeColor };
         _hexBox.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
@@ -195,10 +199,9 @@ public partial class EditorWindow : Window
 
         // Stroke
         _strokeSection = Section(L.Get("Prop.Thickness"));
-        _thicknessSlider = MakeSlider(1, 40, editor.StrokeThickness, v => ApplySlider(
+        _thicknessSlider = MakeSlider(_strokeSection, 1, 40, editor.StrokeThickness, "{0:0.#}", v => ApplySlider(
             () => _canvas.StrokeThickness = v,
             item => item.StrokeThickness = v));
-        _strokeSection.Children.Add(_thicknessSlider);
         root.Children.Add(_strokeSection);
 
         // Fill / dashed
@@ -218,10 +221,9 @@ public partial class EditorWindow : Window
 
         // Text
         _textSection = Section(L.Get("Prop.FontSize"));
-        _fontSizeSlider = MakeSlider(10, 72, editor.FontSize, v => ApplySlider(
+        _fontSizeSlider = MakeSlider(_textSection, 10, 72, editor.FontSize, "{0:0}", v => ApplySlider(
             () => _canvas.FontSize = v,
             item => { if (item is TextItem t) { t.FontSize = v; AnnotationCanvas.MeasureTextItem(t); } }));
-        _textSection.Children.Add(_fontSizeSlider);
         _boldCheck = new CheckBox { Content = L.Get("Prop.Bold"), Margin = new Thickness(0, 4, 0, 0) };
         _boldCheck.Checked += (_, _) => ApplyTextFlag(true);
         _boldCheck.Unchecked += (_, _) => ApplyTextFlag(false);
@@ -230,10 +232,9 @@ public partial class EditorWindow : Window
 
         // Opacity
         var opSection = Section(L.Get("Prop.Opacity"));
-        _opacitySlider = MakeSlider(10, 100, 100, v => ApplySlider(
+        _opacitySlider = MakeSlider(opSection, 10, 100, 100, "{0:0}%", v => ApplySlider(
             () => _canvas.ItemOpacity = v / 100.0,
             item => item.Opacity = v / 100.0));
-        opSection.Children.Add(_opacitySlider);
         root.Children.Add(opSection);
 
         // Mosaic
@@ -246,11 +247,10 @@ public partial class EditorWindow : Window
             () => _canvas.MosaicMode = _mosaicModeCombo.SelectedIndex == 1 ? MosaicMode.Blur : MosaicMode.Pixelate,
             item => { if (item is MosaicItem m) m.Mode = _mosaicModeCombo.SelectedIndex == 1 ? MosaicMode.Blur : MosaicMode.Pixelate; });
         _mosaicSection.Children.Add(_mosaicModeCombo);
-        _strengthSlider = MakeSlider(2, 60, editor.MosaicCellSize, v => ApplySlider(
+        _mosaicSection.Children.Add(new TextBlock { Text = L.Get("Prop.Strength"), Margin = new Thickness(0, 6, 0, 0) });
+        _strengthSlider = MakeSlider(_mosaicSection, 2, 60, editor.MosaicCellSize, "{0:0}", v => ApplySlider(
             () => _canvas.MosaicStrength = (int)v,
             item => { if (item is MosaicItem m) m.Strength = (int)v; }));
-        _mosaicSection.Children.Add(new TextBlock { Text = L.Get("Prop.Strength"), Margin = new Thickness(0, 6, 0, 0) });
-        _mosaicSection.Children.Add(_strengthSlider);
         root.Children.Add(_mosaicSection);
 
         // Spotlight
@@ -263,24 +263,22 @@ public partial class EditorWindow : Window
             () => _canvas.SpotlightElliptical = _spotShapeCombo.SelectedIndex == 1,
             item => { if (item is SpotlightItem s) s.Elliptical = _spotShapeCombo.SelectedIndex == 1; });
         _spotlightSection.Children.Add(_spotShapeCombo);
-        _dimSlider = MakeSlider(10, 95, (int)Math.Round(editor.SpotlightDim * 100), v => ApplySlider(
+        _spotlightSection.Children.Add(new TextBlock { Text = L.Get("Prop.Dim"), Margin = new Thickness(0, 6, 0, 0) });
+        _dimSlider = MakeSlider(_spotlightSection, 10, 95, (int)Math.Round(editor.SpotlightDim * 100), "{0:0}%", v => ApplySlider(
             () => _canvas.SpotlightDim = v / 100.0,
             item => { if (item is SpotlightItem s) s.DimOpacity = v / 100.0; }));
-        _spotlightSection.Children.Add(new TextBlock { Text = L.Get("Prop.Dim"), Margin = new Thickness(0, 6, 0, 0) });
-        _spotlightSection.Children.Add(_dimSlider);
         root.Children.Add(_spotlightSection);
 
         // Magnifier
         _magnifierSection = Section(L.Get("Prop.Zoom"));
-        _magZoomSlider = MakeSlider(15, 50, (int)Math.Round(editor.MagnifierZoom * 10), v => ApplySlider(
+        _magZoomSlider = MakeSlider(_magnifierSection, 15, 50, (int)Math.Round(editor.MagnifierZoom * 10), "{0:0.0}×", v => ApplySlider(
             () => _canvas.MagnifierZoom = v / 10.0,
             item => { if (item is MagnifierItem m) m.Zoom = v / 10.0; }));
-        _magnifierSection.Children.Add(_magZoomSlider);
         root.Children.Add(_magnifierSection);
 
         // Hint
         _hintSection = Section(null);
-        _hintText = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
+        _hintText = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = SecondaryText() };
         _hintSection.Children.Add(_hintText);
         root.Children.Add(_hintSection);
     }
@@ -316,10 +314,29 @@ public partial class EditorWindow : Window
         return sp;
     }
 
-    private Slider MakeSlider(double min, double max, double initial, Action<double> onChanged)
+    /// <summary>Slider with a right-aligned live value label — mirrors the EffectsPanel rows. Adds the row to <paramref name="section"/>.</summary>
+    private Slider MakeSlider(StackPanel section, double min, double max, double initial, string format, Action<double> onChanged)
     {
+        var valueLabel = new TextBlock
+        {
+            Width = 44,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right,
+            Foreground = SecondaryText(),
+        };
         var s = new Slider { Minimum = min, Maximum = max, Value = initial, IsMoveToPointEnabled = true };
-        s.ValueChanged += (_, e) => onChanged(e.NewValue);
+        s.ValueChanged += (_, e) =>
+        {
+            valueLabel.Text = string.Format(CultureInfo.CurrentCulture, format, e.NewValue);
+            onChanged(e.NewValue);
+        };
+        valueLabel.Text = string.Format(CultureInfo.CurrentCulture, format, s.Value);
+        var row = new DockPanel();
+        DockPanel.SetDock(valueLabel, Dock.Right);
+        row.Children.Add(valueLabel);
+        row.Children.Add(s);
+        _sliderRows[s] = row;
+        section.Children.Add(row);
         s.PreviewMouseDown += (_, _) => { _sliderMouseActive = true; if (_canvas.Selected is not null) _canvas.BeginItemEdit(); };
         s.PreviewMouseUp += (_, _) => { _sliderMouseActive = false; FinishSliderEdit(); };
         return s;
@@ -401,6 +418,9 @@ public partial class EditorWindow : Window
             item => { if (item is TextItem t) { t.Bold = bold; AnnotationCanvas.MeasureTextItem(t); } });
     }
 
+    private static Brush SecondaryText() =>
+        System.Windows.Application.Current.TryFindResource("TextFillColorSecondaryBrush") as Brush ?? Brushes.Gray;
+
     private void UpdateSwatches()
     {
         foreach (var sw in _swatches)
@@ -480,7 +500,7 @@ public partial class EditorWindow : Window
         _statusLabel = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = Brushes.Gray,
+            Foreground = SecondaryText(),
             Margin = new Thickness(12, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 320,

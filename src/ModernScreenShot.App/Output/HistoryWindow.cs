@@ -28,7 +28,10 @@ public sealed class HistoryWindow : Window
     private readonly ClipboardService _clipboard;
     private readonly Action<CaptureResult, AnnotationDocument?> _openInEditor;
     private readonly WrapPanel _grid = new() { Margin = new Thickness(8) };
-    private readonly TextBlock _countLabel = new() { Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+    private readonly TextBlock _countLabel = new() { Foreground = MakeSecondaryBrush(), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+
+    internal static Brush MakeSecondaryBrush() =>
+        System.Windows.Application.Current.TryFindResource("TextFillColorSecondaryBrush") as Brush ?? Brushes.Gray;
 
     public HistoryWindow(HistoryStore store, SettingsStore settings, ClipboardService clipboard,
         Action<CaptureResult, AnnotationDocument?> openInEditor)
@@ -85,7 +88,7 @@ public sealed class HistoryWindow : Window
         _countLabel.Text = L.Get("History.Count", entries.Count);
         if (entries.Count == 0)
         {
-            _grid.Children.Add(new TextBlock { Text = L.Get("History.Empty"), Foreground = Brushes.Gray, Margin = new Thickness(8) });
+            _grid.Children.Add(new TextBlock { Text = L.Get("History.Empty"), Foreground = MakeSecondaryBrush(), Margin = new Thickness(8) });
             return;
         }
         foreach (var entry in entries) _grid.Children.Add(MakeItem(entry));
@@ -110,14 +113,16 @@ public sealed class HistoryWindow : Window
             TextAlignment = TextAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             FontSize = 11,
-            Foreground = Brushes.Gray,
+            Foreground = MakeSecondaryBrush(),
             Margin = new Thickness(2),
         };
 
         var card = new Border
         {
             Child = new StackPanel { Children = { image, text } },
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x48)),
+            // Translucent gray reads on both light and dark backgrounds (a fixed dark gray
+            // disappeared on the light theme).
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0x80, 0x80, 0x80)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Margin = new Thickness(4),

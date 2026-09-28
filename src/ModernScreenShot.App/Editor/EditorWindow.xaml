@@ -13,8 +13,10 @@
         </Border>
         <Border DockPanel.Dock="Bottom" x:Name="ActionsHost" Padding="10,6" BorderBrush="#22000000" BorderThickness="0,1,0,0" />
         <ScrollViewer x:Name="Scroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                      Background="#FF202022">
-            <Grid x:Name="CanvasHost" />
+                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+            <!-- Dark workbench on the Grid itself: the ScrollViewer template ignores Background,
+                 which left a white workbench around the image in the light theme. -->
+            <Grid x:Name="CanvasHost" Background="#FF202022" />
         </ScrollViewer>
     </DockPanel>
 </Window>
