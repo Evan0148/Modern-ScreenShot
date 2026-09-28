@@ -184,6 +184,7 @@
     <sys:String x:Key="Settings.ShowMagnifier">选区时显示放大镜</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">截取鼠标指针</sys:String>
     <sys:String x:Key="Settings.TransparentCorners">窗口截图保留透明圆角</sys:String>
+    <sys:String x:Key="Settings.MacShadow">窗口截图应用 Mac 风格阴影</sys:String>
     <sys:String x:Key="Settings.HistoryMax">历史记录上限（条）</sys:String>
     <sys:String x:Key="Settings.PressKeys">请按下组合键…</sys:String>
     <sys:String x:Key="Settings.HotkeyHint">点击按钮后按下组合键；按 Esc 清除该绑定，重复的键位会标红。</sys:String>

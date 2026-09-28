@@ -127,6 +127,7 @@ public partial class SettingsWindow : Window
         ShowMagnifierBox.IsChecked = capture.ShowMagnifier;
         CaptureCursorBox.IsChecked = capture.CaptureCursor;
         TransparentCornersBox.IsChecked = capture.WindowTransparentCorners;
+        MacShadowBox.IsChecked = capture.MacStyleWindowShadow;
         HistoryMaxBox.Text = _settings.Current.HistoryMaxCount.ToString(CultureInfo.InvariantCulture);
     }
 
@@ -347,6 +348,7 @@ public partial class SettingsWindow : Window
         s.Capture.ShowMagnifier = ShowMagnifierBox.IsChecked == true;
         s.Capture.CaptureCursor = CaptureCursorBox.IsChecked == true;
         s.Capture.WindowTransparentCorners = TransparentCornersBox.IsChecked == true;
+        s.Capture.MacStyleWindowShadow = MacShadowBox.IsChecked == true;
         s.HistoryMaxCount = ParseInt(HistoryMaxBox.Text, s.HistoryMaxCount, 0, 5000);
         s.Output.SaveDirectory = SaveDirBox.Text.Trim();
         s.Output.Format = Enum.IsDefined((ImageFormat)FormatBox.SelectedIndex)

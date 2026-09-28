@@ -108,9 +108,13 @@ public sealed class CaptureService
 
         if (outcome.WindowHandle != IntPtr.Zero)
         {
-            var image = _windowCapturer.CaptureWindow(outcome.WindowHandle, _settings.Current.Capture.WindowTransparentCorners, out var title);
+            // macOS-style shot needs the transparent rounded corners regardless of the corners toggle.
+            bool macStyle = _settings.Current.Capture.MacStyleWindowShadow;
+            bool transparentCorners = _settings.Current.Capture.WindowTransparentCorners || macStyle;
+            var image = _windowCapturer.CaptureWindow(outcome.WindowHandle, transparentCorners, out var title);
             if (image is not null)
             {
+                var windowDoc = ApplyMacStyleIfEnabled(doc, image, CaptureMode.WindowPick, title);
                 return new CaptureResult
                 {
                     Image = image,
@@ -118,7 +122,8 @@ public sealed class CaptureService
                     WindowTitle = title,
                     SourceRect = outcome.PickedWindow?.Bounds ?? outcome.Region,
                     RequestedAction = MapIntent(outcome.Intent),
-                    AnnotationDocument = doc,
+                    AnnotationDocument = windowDoc,
+                    BakeEffectsOnDirectOutput = macStyle,
                 };
             }
             Log.Warn("Window capture failed after picking; falling back to the frozen region crop.");
@@ -177,14 +182,48 @@ public sealed class CaptureService
 
     private CaptureResult? CaptureActiveWindow()
     {
-        var image = _windowCapturer.CaptureActiveWindow(_settings.Current.Capture.WindowTransparentCorners,
+        bool macStyle = _settings.Current.Capture.MacStyleWindowShadow;
+        bool transparentCorners = _settings.Current.Capture.WindowTransparentCorners || macStyle;
+        var image = _windowCapturer.CaptureActiveWindow(transparentCorners,
             out var title, out var bounds, out _);
         if (image is null)
         {
             Log.Warn("Active window capture returned no image.");
             return null;
         }
-        return new CaptureResult { Image = image, Mode = CaptureMode.ActiveWindow, WindowTitle = title, SourceRect = bounds };
+        var doc = ApplyMacStyleIfEnabled(null, image, CaptureMode.ActiveWindow, title);
+        return new CaptureResult
+        {
+            Image = image,
+            Mode = CaptureMode.ActiveWindow,
+            WindowTitle = title,
+            SourceRect = bounds,
+            AnnotationDocument = doc,
+            BakeEffectsOnDirectOutput = macStyle,
+        };
+    }
+
+    /// <summary>
+    /// When macOS-style window shadow is enabled, returns an <see cref="AnnotationDocument"/> whose
+    /// <see cref="AnnotationDocument.Effects"/> is a fresh SoftFloat preset (soft shadow + transparent
+    /// surround). Existing inline annotations are preserved; only their Effects are set. This does NOT
+    /// touch the persisted <c>store.Current.Effects</c>, so a user's effect preference for ordinary
+    /// captures is never overwritten. When disabled, the caller's document passes through unchanged.
+    /// </summary>
+    private AnnotationDocument? ApplyMacStyleIfEnabled(AnnotationDocument? doc, PixelBuffer image, CaptureMode mode, string? title)
+    {
+        if (!_settings.Current.Capture.MacStyleWindowShadow) return doc;
+        doc ??= new AnnotationDocument
+        {
+            ImageWidth = image.Width,
+            ImageHeight = image.Height,
+            WindowTitle = title,
+            CaptureMode = mode.ToString(),
+        };
+        var effects = BuiltInPresets.SoftFloat().Settings;
+        effects.Enabled = true;
+        doc.Effects = effects;
+        return doc;
     }
 
     private CaptureResult? CaptureLastRegion()

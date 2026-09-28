@@ -184,6 +184,7 @@
     <sys:String x:Key="Settings.ShowMagnifier">Show magnifier while selecting</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">Include mouse cursor</sys:String>
     <sys:String x:Key="Settings.TransparentCorners">Transparent rounded corners for window captures</sys:String>
+    <sys:String x:Key="Settings.MacShadow">Apply macOS-style shadow to window captures</sys:String>
     <sys:String x:Key="Settings.HistoryMax">History size (items)</sys:String>
     <sys:String x:Key="Settings.PressKeys">Press a key combination…</sys:String>
     <sys:String x:Key="Settings.HotkeyHint">Click a button, then press the combination. Esc clears the binding; duplicates are marked red.</sys:String>

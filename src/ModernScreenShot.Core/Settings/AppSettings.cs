@@ -83,6 +83,13 @@ public sealed class CaptureSettings
     public int[]? LastRegion { get; set; }
     public int ScrollIntervalMs { get; set; } = 350;
     public int ScrollMaxHeight { get; set; } = 20000;
+    /// <summary>
+    /// When true, single-window captures (WindowPick / ActiveWindow) are output as a macOS-style
+    /// shot: content keeps rounded corners, the surround is transparent, and a soft drop shadow is
+    /// applied. Only affects window captures; full-screen/region shots are untouched. Defaults to
+    /// false so existing settings.json files deserialize unchanged.
+    /// </summary>
+    public bool MacStyleWindowShadow { get; set; }
 }
 
 public sealed class EditorSettings

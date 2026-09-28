@@ -343,16 +343,34 @@ public partial class App
     private static PixelBuffer ImageWithAnnotations(CaptureResult result)
     {
         var doc = result.AnnotationDocument;
-        if (doc is null || doc.Items.Count == 0) return result.Image;
-        try
+        var image = result.Image;
+        if (doc is not null && doc.Items.Count > 0)
         {
-            return AnnotationFlattener.Flatten(result.Image, doc);
+            try
+            {
+                image = AnnotationFlattener.Flatten(result.Image, doc);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Flattening the inline annotations failed; exporting without them.", ex);
+                image = result.Image;
+            }
         }
-        catch (Exception ex)
+        // macOS-style window shots must carry their transparent shadow into direct outputs (copy/save/pin),
+        // which otherwise never run the effect pipeline. Ordinary captures leave the flag off, so their
+        // direct output stays a clean crop.
+        if (result.BakeEffectsOnDirectOutput && doc is not null && doc.Effects.Enabled)
         {
-            Log.Error("Flattening the inline annotations failed; exporting without them.", ex);
-            return result.Image;
+            try
+            {
+                image = EffectPipeline.Compose(image, doc.Effects);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Applying the macOS-style shadow effect failed; exporting without it.", ex);
+            }
         }
+        return image;
     }
 
     private void OpenEditor(CaptureResult result, AnnotationDocument? document = null)

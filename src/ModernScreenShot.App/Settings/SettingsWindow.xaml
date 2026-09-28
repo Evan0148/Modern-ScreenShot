@@ -86,6 +86,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
                                Text="{DynamicResource Settings.DelaySeconds}"/>
@@ -97,9 +98,11 @@
                               Content="{DynamicResource Settings.CaptureCursor}"/>
                     <CheckBox Grid.Row="3" Grid.Column="1" x:Name="TransparentCornersBox" Margin="0,8,0,4"
                               Content="{DynamicResource Settings.TransparentCorners}"/>
-                    <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource FormLabel}"
+                    <CheckBox Grid.Row="4" Grid.Column="1" x:Name="MacShadowBox" Margin="0,8,0,4"
+                              Content="{DynamicResource Settings.MacShadow}"/>
+                    <TextBlock Grid.Row="5" Grid.Column="0" Style="{StaticResource FormLabel}"
                                Text="{DynamicResource Settings.HistoryMax}"/>
-                    <TextBox Grid.Row="4" Grid.Column="1" x:Name="HistoryMaxBox" Width="80"
+                    <TextBox Grid.Row="5" Grid.Column="1" x:Name="HistoryMaxBox" Width="80"
                              HorizontalAlignment="Left" Margin="0,4,0,4"/>
                 </Grid>
             </TabItem>

@@ -15,5 +15,12 @@ public sealed class CaptureResult
     public AfterCaptureAction? RequestedAction { get; init; }
     /// <summary>Annotations drawn inline in the overlay (image pixels relative to the crop). Image itself is the clean crop.</summary>
     public AnnotationDocument? AnnotationDocument { get; init; }
+    /// <summary>
+    /// When true, direct outputs (copy/save/pin) must bake <see cref="AnnotationDocument"/>.Effects into
+    /// the pixels via the effect pipeline. Set only for macOS-style window shots, whose transparent
+    /// shadow surround must survive even without opening the editor. Ordinary captures leave this false
+    /// so direct output stays a clean crop (effects remain an editor-only step for them).
+    /// </summary>
+    public bool BakeEffectsOnDirectOutput { get; init; }
     public DateTime Time { get; init; } = DateTime.Now;
 }
