@@ -33,6 +33,44 @@ internal sealed class OverlayRenderer : FrameworkElement
     private readonly OverlayWindow _win;
     private readonly BitmapSource _frozenFull;
     private readonly BitmapSource _slice;
+    private long _lastSignature = long.MinValue;
+
+    // Reused across frames: a new Typeface/FontFamily per label caused steady per-move GC pressure.
+    private static readonly Typeface LabelTypeface = new(
+        new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
+    // The magnifier crop follows the cursor; caching it by source origin avoids a new CroppedBitmap
+    // (+ Freeze) allocation on every single mouse-move frame.
+    private CroppedBitmap? _magCache;
+    private int _magCacheX = int.MinValue, _magCacheY = int.MinValue;
+
+    /// <summary>
+    /// True when anything this monitor draws may have changed since the last render. Lets idle
+    /// monitors skip a frame during a drag while never dropping a frame the window actually needs.
+    /// Conservative: any relevance to this monitor (cursor here, or selection/hover overlapping it)
+    /// forces a redraw; the early-out only triggers when this monitor stays uninvolved.
+    /// </summary>
+    internal bool StateChanged()
+    {
+        long sig = ComputeSignature();
+        // long.MinValue == "involved / uncertain": always redraw and never cache it as clean.
+        if (sig == long.MinValue) { _lastSignature = long.MinValue; return true; }
+        if (sig == _lastSignature) return false;
+        _lastSignature = sig;
+        return true;
+    }
+
+    private long ComputeSignature()
+    {
+        var mb = _win.Monitor.Bounds;
+        // The magnifier, hover box and selection all move with the cursor/drag and can straddle
+        // monitor edges, so if any of them touches this monitor, treat every frame as dirty.
+        if (_session.CursorValid && mb.Contains(_session.Cursor.X, _session.Cursor.Y)) return long.MinValue;
+        if (_session.Selection is { } sel && !mb.Intersect(sel).IsEmpty) return long.MinValue;
+        if (_session.Hover is { } hv && !mb.Intersect(hv.Bounds).IsEmpty) return long.MinValue;
+        // Nothing on this monitor: a stable, cheap signature so repeated idle frames coalesce.
+        return ((long)_session.State << 1) | (_session.Selection is null ? 0L : 1L);
+    }
 
     public OverlayRenderer(OverlaySession session, OverlayWindow win, BitmapSource frozenFull)
     {
@@ -89,18 +127,23 @@ internal sealed class OverlayRenderer : FrameworkElement
     private void DrawSelection(DrawingContext dc, double w, double h, PixelRect sel, bool showHandles)
     {
         var r = _win.ToLocalDip(sel);
+        var full = new Rect(0, 0, w, h);
 
-        void Dim(Rect rect)
+        // Build each dim band from clamped edges: a selection lying partly (or wholly) outside this
+        // monitor makes the naive new Rect(0, r.Bottom, w, h - r.Bottom) negative-sized, which throws
+        // ArgumentException from the Rect ctor and kills the whole frame (looked like flicker/jank).
+        void Dim(double left, double top, double right, double bottom)
         {
-            var c = Rect.Intersect(rect, new Rect(0, 0, w, h));
-            if (c.Width > 0.5 && c.Height > 0.5) dc.DrawRectangle(DimBrush, null, c);
+            double l = Math.Max(0, left), t = Math.Max(0, top);
+            double rr = Math.Min(w, right), bb = Math.Min(h, bottom);
+            if (rr - l > 0.5 && bb - t > 0.5) dc.DrawRectangle(DimBrush, null, new Rect(l, t, rr - l, bb - t));
         }
-        Dim(new Rect(0, 0, w, r.Top));
-        Dim(new Rect(0, r.Bottom, w, h - r.Bottom));
-        Dim(new Rect(0, r.Top, r.Left, r.Height));
-        Dim(new Rect(r.Right, r.Top, w - r.Right, r.Height));
+        Dim(0, 0, w, r.Top);              // above
+        Dim(0, r.Bottom, w, h);          // below
+        Dim(0, r.Top, r.Left, r.Bottom); // left
+        Dim(r.Right, r.Top, w, r.Bottom);// right
 
-        dc.DrawRectangle(null, AccentPen, r);
+        if (full.IntersectsWith(r)) dc.DrawRectangle(null, AccentPen, r);
 
         if (showHandles)
         {
@@ -128,7 +171,15 @@ internal sealed class OverlayRenderer : FrameworkElement
 
         int sx = Math.Clamp(cur.X - MagSamples / 2 - _session.Virtual.X, 0, Math.Max(0, _frozenFull.PixelWidth - MagSamples));
         int sy = Math.Clamp(cur.Y - MagSamples / 2 - _session.Virtual.Y, 0, Math.Max(0, _frozenFull.PixelHeight - MagSamples));
-        var crop = new CroppedBitmap(_frozenFull, new Int32Rect(sx, sy, MagSamples, MagSamples));
+        if (_magCache is null || sx != _magCacheX || sy != _magCacheY)
+        {
+            var crop = new CroppedBitmap(_frozenFull, new Int32Rect(sx, sy, MagSamples, MagSamples));
+            crop.Freeze(); // a frozen bitmap skips per-frame change-tracking overhead
+            _magCache = crop;
+            _magCacheX = sx;
+            _magCacheY = sy;
+        }
+        var magBitmap = _magCache;
 
         double dipX = (cur.X - mb.X) / scale;
         double dipY = (cur.Y - mb.Y) / scale;
@@ -139,7 +190,7 @@ internal sealed class OverlayRenderer : FrameworkElement
         my = Math.Max(4, my);
 
         var dest = new Rect(mx, my, magSize, magSize);
-        dc.DrawImage(crop, dest);
+        dc.DrawImage(magBitmap, dest);
         for (int i = 1; i < MagSamples; i++)
         {
             double off = i * cell;
@@ -182,9 +233,11 @@ internal sealed class OverlayRenderer : FrameworkElement
 
     private FormattedText MakeText(string text, double size = 12, bool bold = false) =>
         new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal,
-                bold ? FontWeights.SemiBold : FontWeights.Normal, FontStretches.Normal),
+            bold ? BoldTypeface : LabelTypeface,
             size, Brushes.White, _win.Scale);
+
+    private static readonly Typeface BoldTypeface = new(
+        new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
 
     private static T Freeze<T>(T freezable) where T : Freezable
     {

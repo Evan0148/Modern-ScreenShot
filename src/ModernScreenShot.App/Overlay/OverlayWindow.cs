@@ -24,7 +24,18 @@ internal sealed class OverlayWindow : Window
     private readonly OverlaySession _session;
     private readonly OverlayRenderer _renderer;
     private readonly Border _toolbarHost;
+    private readonly TranslateTransform _toolbarOffset = new();
+    private Size _toolbarSize;
+    private bool _toolbarShown;
     private double _dpiCache = -1;
+
+    // Mouse-move coalescing: PreviewMouseMove fires far more often than the display refreshes, and
+    // each event drove a full session update + repaint of every overlay window, which is what made
+    // the selection/toolbar feel jumpy. We record the latest cursor position and flush it once per
+    // rendered frame instead.
+    private bool _movePending;
+    private VPoint _pendingMove;
+    private bool _renderHooked;
 
     internal MonitorInfo Monitor { get; }
 
@@ -48,15 +59,29 @@ internal sealed class OverlayWindow : Window
 
         _renderer = new OverlayRenderer(session, this, frozenSource);
         _toolbarHost = BuildToolbar();
+        // Canvas + TranslateTransform lets the toolbar move by only updating a transform, which
+        // skips the full window Measure/Arrange pass that a Margin change would trigger every frame.
+        var toolbarLayer = new Canvas { IsHitTestVisible = true };
+        _toolbarHost.RenderTransform = _toolbarOffset;
+        toolbarLayer.Children.Add(_toolbarHost);
         var grid = new Grid();
         grid.Children.Add(_renderer);
-        grid.Children.Add(_toolbarHost);
+        grid.Children.Add(toolbarLayer);
         Content = grid;
 
         SourceInitialized += (_, _) => PlaceWindow(activate);
-        Loaded += (_, _) => { _dpiCache = -1; if (activate) { Activate(); _renderer.Focus(); } };
+        Loaded += (_, _) =>
+        {
+            _dpiCache = -1;
+            if (!_renderHooked) { CompositionTarget.Rendering += OnRenderingFrame; _renderHooked = true; }
+            if (activate) { Activate(); _renderer.Focus(); }
+        };
         DpiChanged += (_, _) => _dpiCache = -1;
-        Closed += (_, _) => _session.OnWindowClosed(this);
+        Closed += (_, _) =>
+        {
+            if (_renderHooked) { CompositionTarget.Rendering -= OnRenderingFrame; _renderHooked = false; }
+            _session.OnWindowClosed(this);
+        };
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewMouseLeftButtonDown += OnPreviewLeftButtonDown;
@@ -114,7 +139,9 @@ internal sealed class OverlayWindow : Window
     {
         ApplyCursorShape();
         UpdateToolbar();
-        _renderer.InvalidateVisual();
+        // Only repaint this monitor's renderer when something it actually draws changed. During a
+        // drag the cursor/selection changes on one or two monitors; the rest can skip the frame.
+        if (_renderer.StateChanged()) _renderer.InvalidateVisual();
     }
 
     private void PlaceWindow(bool activate)
@@ -157,8 +184,22 @@ internal sealed class OverlayWindow : Window
         if (IsMouseCaptured) ReleaseMouseCapture();
     }
 
-    private void OnPreviewMouseMove(object sender, MouseEventArgs e) =>
-        _session.OnMove(this, ToVirtual(e.GetPosition(_renderer)));
+    private void OnPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        // Coalesce to one session update per rendered frame (see _movePending). During an active
+        // drag the mouse is captured by THIS window, so all move events land here; recording the
+        // latest position and flushing on the render tick keeps the selection glued to the cursor
+        // without the multi-event-per-frame thrash.
+        _pendingMove = ToVirtual(e.GetPosition(_renderer));
+        _movePending = true;
+    }
+
+    private void OnRenderingFrame(object? sender, EventArgs e)
+    {
+        if (!_movePending) return;
+        _movePending = false;
+        _session.OnMove(this, _pendingMove);
+    }
 
     private bool IsOverToolbar(MouseButtonEventArgs e) =>
         _toolbarHost.Visibility == Visibility.Visible
@@ -261,18 +302,32 @@ internal sealed class OverlayWindow : Window
             || _session.Mode != CaptureMode.Region
             || !Monitor.Bounds.Contains(sel.Right - 1, sel.Bottom - 1))
         {
-            _toolbarHost.Visibility = Visibility.Collapsed;
+            if (_toolbarShown)
+            {
+                _toolbarHost.Visibility = Visibility.Collapsed;
+                _toolbarShown = false;
+            }
             return;
         }
-        _toolbarHost.Visibility = Visibility.Visible;
-        _toolbarHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var size = _toolbarHost.DesiredSize;
+        if (!_toolbarShown)
+        {
+            _toolbarHost.Visibility = Visibility.Visible;
+            _toolbarShown = true;
+        }
+        // Measure once; the toolbar content never changes size, so cache it and only move the transform.
+        if (_toolbarSize.Width <= 0)
+        {
+            _toolbarHost.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            _toolbarSize = _toolbarHost.DesiredSize;
+        }
+        var size = _toolbarSize;
         var local = ToLocalDip(sel);
         double x = local.Right - size.Width - 2;
         double y = local.Bottom + 8;
         if (y + size.Height > ActualHeight - 4) y = local.Top - size.Height - 8;
         x = Math.Clamp(x, 4, Math.Max(4, ActualWidth - size.Width - 4));
         y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
-        _toolbarHost.Margin = new Thickness(x, y, 0, 0);
+        _toolbarOffset.X = x;
+        _toolbarOffset.Y = y;
     }
 }
