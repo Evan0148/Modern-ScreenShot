@@ -81,7 +81,100 @@ public partial class App
         if (StartupArgs.Any(a => string.Equals(a, "--show-settings", StringComparison.OrdinalIgnoreCase))) OpenSettings();
         if (StartupArgs.Any(a => string.Equals(a, "--show-history", StringComparison.OrdinalIgnoreCase))) OpenHistory();
         if (StartupArgs.Any(a => string.Equals(a, "--show-editor", StringComparison.OrdinalIgnoreCase))) ShowDiagnosticEditor();
+        // Hidden diagnostic switch: --render-settings|--render-editor|--render-history opens the
+        // window, waits for layout/async content, writes a RenderTargetBitmap PNG to $MSS_RENDER_OUT
+        // and exits (screen-lock safe; consumed by tools\verify_theme.ps1 and UI verification runs).
+        string? renderArg = null;
+        foreach (var a in StartupArgs)
+            if (a.StartsWith("--render-", StringComparison.OrdinalIgnoreCase)) { renderArg = a; break; }
+        if (renderArg is not null)
+        {
+            RunDiagnosticRender(renderArg["--render-".Length..]);
+            return; // the trailing no-tray shutdown check must not kill the pending render
+        }
         if (!TrayStarted && EditorWindows.Count == 0) Shutdown(0);
+    }
+
+    /// <summary>Renders a diagnostic window to a PNG via RenderTargetBitmap, then exits.</summary>
+    private void RunDiagnosticRender(string target)
+    {
+        switch (target.ToLowerInvariant())
+        {
+            case "settings": OpenSettings(); break;
+            case "editor": ShowDiagnosticEditor(); break;
+            case "history": OpenHistory(); break;
+            default:
+                Log.Warn($"--render-{target}: unknown window target.");
+                Shutdown(2);
+                return;
+        }
+        string? outPath = Environment.GetEnvironmentVariable("MSS_RENDER_OUT");
+        if (string.IsNullOrWhiteSpace(outPath))
+        {
+            Log.Warn("--render-* requires the MSS_RENDER_OUT environment variable.");
+            Shutdown(2);
+            return;
+        }
+        // Give the window time to lay out and settle async content (history thumbnails) before the
+        // snapshot; MSS_RENDER_WAIT_MS raises the default for slow starts.
+        int waitMs = 1500;
+        if (int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_WAIT_MS"), out var parsed) && parsed > 0) waitMs = parsed;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(waitMs) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var exit = 0;
+            try
+            {
+                Window? win = null;
+                foreach (Window w in Application.Current.Windows)
+                    if (w is SettingsWindow or EditorWindow or HistoryWindow && w.Content is UIElement) { win = w; break; }
+                if (win is null)
+                    throw new InvalidOperationException($"no diagnostic window found for '{target}'.");
+                // MSS_RENDER_TAB selects a settings tab by index (0-based) before the snapshot.
+                if (win is SettingsWindow
+                    && int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_TAB"), out var tab)
+                    && FindDescendant<System.Windows.Controls.TabControl>(win) is { } tc
+                    && tab >= 0 && tab < tc.Items.Count)
+                {
+                    tc.SelectedIndex = tab;
+                    win.UpdateLayout();
+                }
+                // Render the WINDOW (its Background paint lives on the Window visual, not on Content —
+                // rendering Content alone yields a transparent backdrop).
+                double sx = 1, sy = 1;
+                try { var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(win); sx = dpi.DpiScaleX; sy = dpi.DpiScaleY; } catch { /* 96 dpi fallback */ }
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    Math.Max(1, (int)Math.Round(win.ActualWidth * sx)),
+                    Math.Max(1, (int)Math.Round(win.ActualHeight * sy)),
+                    96 * sx, 96 * sy, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(win);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                using var fs = System.IO.File.Create(outPath);
+                enc.Save(fs);
+                Log.Info($"--render-{target}: wrote {outPath}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"--render-{target} failed", ex);
+                exit = 1;
+            }
+            Shutdown(exit);
+        };
+        timer.Start();
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : class
+    {
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            if (FindDescendant<T>(child) is { } deep) return deep;
+        }
+        return null;
     }
 
     partial void OnSmokeTest(IServiceProvider services)
@@ -488,6 +581,11 @@ public partial class App
             WindowTitle = "Diagnostic",
             CaptureMode = CaptureMode.Region.ToString(),
         };
+        // Sample items so UI verification renders populated content instead of an empty canvas.
+        doc.Items.Add(new RectItem { Rect = new RectD(120, 100, 260, 160), StrokeColor = "#FF3B30", StrokeThickness = 4 });
+        doc.Items.Add(new PenItem { Points = [new PointD(480, 120), new PointD(560, 220), new PointD(660, 160)], StrokeColor = "#0A84FF", StrokeThickness = 3 });
+        doc.Items.Add(new TextItem { Position = new PointD(140, 330), Text = "Diagnostic 诊断 Aa", FontSize = 24, StrokeColor = "#FFFFFF" });
+        doc.Items.Add(new StepItem { Center = new PointD(760, 420), Radius = 16, StrokeColor = "#FF9F0A", Number = 1 });
         OpenEditor(new CaptureResult
         {
             Image = image,
