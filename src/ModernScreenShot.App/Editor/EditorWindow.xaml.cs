@@ -9,12 +9,15 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Windows.Interop;
 using ModernScreenShot.App.Capture;
+using ModernScreenShot.App.Controls;
 using ModernScreenShot.App.Effects;
 using ModernScreenShot.App.Interop;
+using ModernScreenShot.App.Ocr;
 using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Services;
 using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
+using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
 using L = ModernScreenShot.App.Localization.LocalizationService;
@@ -30,18 +33,22 @@ public partial class EditorWindow : Window
     private readonly ImageExporter _exporter;
     private readonly AnnotationDocument? _document;
     private readonly Func<PixelBuffer, Window>? _pinFactory;
+    private readonly OcrService? _ocr;
     private readonly Dictionary<EditorTool, RadioButton> _toolButtons = [];
     private readonly List<Button> _swatches = [];
+    private readonly Dictionary<Button, string> _swatchHex = [];
     private AnnotationCanvas _canvas = null!;
 
     private bool _dirty;
     private bool _ready;
+    private bool _closed;
     private bool _syncingPanel;
     private bool _panelDirty;
     private bool _sliderMouseActive;
     private TextBox? _textOverlay;
     private TextItem? _textEditTarget;
     private PointD _textEditPosition;
+    private double _textOverlayBaseFontSize; // image-space font size; re-scaled when the zoom changes
 
     private WrapPanel _palette = null!;
     private TextBox _hexBox = null!;
@@ -65,15 +72,18 @@ public partial class EditorWindow : Window
     private MonitorInfo? _targetMonitor;
 
     public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter,
-        AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null, MonitorService? monitors = null)
+        AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null, MonitorService? monitors = null,
+        OcrService? ocr = null)
     {
         InitializeComponent();
+        AppTitleBar.Attach(this); // custom title bar (Controls/AppTitleBar) replaces the OS caption
         _result = result;
         _settings = settings;
         _clipboard = clipboard;
         _exporter = exporter;
         _document = document;
         _pinFactory = pinFactory;
+        _ocr = ocr;
 
         var editor = settings.Current.Editor;
         // Size to the monitor the capture came from: sizing against the primary work area overflows
@@ -163,11 +173,23 @@ public partial class EditorWindow : Window
         Loaded += (_, _) => FitZoom();
     }
 
+    // Dark toolbar strip shared with the capture overlay's vocabulary — icon tools, white glyphs.
+    private static readonly Brush ToolbarBackBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2E)));
+    private static readonly Brush ActiveToolBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xFF, 0x0A, 0x84, 0xFF)));
+    private static readonly Brush HoverBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x28, 0xFF, 0xFF, 0xFF)));
+
+    private static Brush Frozen(Brush b) { b.Freeze(); return b; }
+
     private void BuildToolbar()
     {
-        // WrapPanel: 14 tools overflow a single line at the default window width, which made the
-        // last tools (Spotlight/Magnifier/Crop) unreachable.
-        var panel = new WrapPanel();
+        // A dark icon strip (like the capture overlay): 15 text chips wrapped into an unscannable wall,
+        // so each tool is now a 34×34 icon toggle with a name+hotkey tooltip. Icons wrap on a narrow
+        // window rather than clipping.
+        ToolbarHost.Background = ToolbarBackBrush;
+        ToolbarHost.BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0x00, 0x00, 0x00));
+        ToolbarHost.Padding = new Thickness(8, 5, 8, 5);
+
+        var panel = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         foreach (var (tool, key) in new[]
         {
             (EditorTool.Select, "Tool.Select"), (EditorTool.Rect, "Tool.Rect"), (EditorTool.Ellipse, "Tool.Ellipse"),
@@ -180,14 +202,14 @@ public partial class EditorWindow : Window
             var rb = new RadioButton
             {
                 GroupName = "editorTools",
-                Content = L.Get(key),
-                Margin = new Thickness(1, 0, 1, 0),
-                Padding = new Thickness(8, 4, 8, 4),
-                VerticalContentAlignment = VerticalAlignment.Center,
+                Style = ToolToggleStyle(),
+                Content = EditorIcons.For(tool),
+                ToolTip = L.Get(key),
             };
+            var t = tool;
             rb.Checked += (_, _) =>
             {
-                _canvas.Tool = tool;
+                _canvas.Tool = t;
                 if (_ready) UpdatePropertyPanel();
                 RefreshSelectionButtons();
             };
@@ -196,10 +218,10 @@ public partial class EditorWindow : Window
         }
         _toolButtons[EditorTool.Select].IsChecked = true;
 
-        panel.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
-        _deleteButton = MakeToolButton(L.Get("Action.Delete"), (_, _) => _canvas.DeleteSelected());
-        _frontButton = MakeToolButton(L.Get("Action.BringToFront"), (_, _) => _canvas.BringToFront());
-        _backButton = MakeToolButton(L.Get("Action.SendToBack"), (_, _) => _canvas.SendToBack());
+        panel.Children.Add(ToolbarSeparator());
+        _deleteButton = MakeIconButton(EditorIcons.Delete(), "Action.Delete", (_, _) => _canvas.DeleteSelected());
+        _frontButton = MakeIconButton(EditorIcons.Front(), "Action.BringToFront", (_, _) => _canvas.BringToFront());
+        _backButton = MakeIconButton(EditorIcons.Back(), "Action.SendToBack", (_, _) => _canvas.SendToBack());
         panel.Children.Add(_deleteButton);
         panel.Children.Add(_frontButton);
         panel.Children.Add(_backButton);
@@ -207,17 +229,92 @@ public partial class EditorWindow : Window
         ToolbarHost.Child = panel;
     }
 
-    private Button MakeToolButton(string text, RoutedEventHandler onClick)
+    // A plain 1×22 rule. The Separator control's default template paints a horizontal 1px line,
+    // which inside Width=1 collapses to a nearly invisible dot.
+    private static FrameworkElement ToolbarSeparator() => new Border
+    {
+        Width = 1,
+        Height = 22,
+        Margin = new Thickness(6, 0, 6, 0),
+        Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    /// <summary>A borderless icon button on the dark toolbar strip: transparent, hover fill, white icon.</summary>
+    private Button MakeIconButton(FrameworkElement icon, string tooltipKey, RoutedEventHandler onClick)
     {
         var b = new Button
         {
-            Content = text,
+            Style = null,
+            Content = icon,
+            Width = 34,
+            Height = 34,
             Margin = new Thickness(1, 0, 1, 0),
-            Padding = new Thickness(8, 4, 8, 4),
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Foreground = Brushes.White,
             Cursor = Cursors.Hand,
+            ToolTip = L.Get(tooltipKey),
+            Template = IconButtonTemplate(),
         };
         b.Click += onClick;
         return b;
+    }
+
+    /// <summary>Control template for a flat icon button: a rounded background that lights on hover and
+    /// dims when disabled, hosting the icon centered. Shared by toolbar and action-bar icon buttons.</summary>
+    private static ControlTemplate IconButtonTemplate()
+    {
+        var t = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        var content = new FrameworkElementFactory(typeof(ContentPresenter));
+        content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(content);
+        t.VisualTree = border;
+
+        var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        over.Setters.Add(new Setter(Control.BackgroundProperty, HoverBrush));
+        t.Triggers.Add(over);
+        var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.35));
+        t.Triggers.Add(disabled);
+        return t;
+    }
+
+    /// <summary>Style for a tool RadioButton rendered as a flat toggle: hover fill, and an accent
+    /// background + white icon when checked. Same footprint as <see cref="IconButtonTemplate"/>.</summary>
+    private static Style ToolToggleStyle()
+    {
+        var style = new Style(typeof(RadioButton));
+        style.Setters.Add(new Setter(FrameworkElement.WidthProperty, 34.0));
+        style.Setters.Add(new Setter(FrameworkElement.HeightProperty, 34.0));
+        style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(1, 0, 1, 0)));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, Brushes.Transparent));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+        style.Setters.Add(new Setter(FrameworkElement.CursorProperty, Cursors.Hand));
+
+        var t = new ControlTemplate(typeof(RadioButton));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        var content = new FrameworkElementFactory(typeof(ContentPresenter));
+        content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(content);
+        t.VisualTree = border;
+
+        var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        over.Setters.Add(new Setter(Control.BackgroundProperty, HoverBrush));
+        t.Triggers.Add(over);
+        var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+        checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, ActiveToolBrush));
+        t.Triggers.Add(checkedTrigger);
+        style.Setters.Add(new Setter(Control.TemplateProperty, t));
+        return style;
     }
 
     private void BuildProperties(EditorSettings editor)
@@ -341,22 +438,54 @@ public partial class EditorWindow : Window
         var wp = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
         foreach (var hex in _settings.Current.Editor.Palette)
         {
+            // A larger rounded chip; a clear accent ring marks the selected color (a 1↔3px border was
+            // too weak to spot). Templated so the ring can be drawn outside the fill.
             var sw = new Button
             {
-                Width = 24,
-                Height = 24,
-                Margin = new Thickness(0, 0, 5, 5),
+                Style = null,
+                Width = 28,
+                Height = 28,
+                Margin = new Thickness(0, 0, 6, 6),
                 Background = AnnotationRenderer.BrushFor(hex),
-                BorderBrush = Brushes.Gray,
-                BorderThickness = new Thickness(1),
-                Tag = hex,
                 Cursor = Cursors.Hand,
+                ToolTip = hex,
+                Template = SwatchTemplate(),
             };
             sw.Click += (_, _) => ApplyColor(hex);
+            _swatchHex[sw] = hex;
             _swatches.Add(sw);
             wp.Children.Add(sw);
         }
         return wp;
+    }
+
+    private static readonly Brush SwatchRingBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xFF, 0x0A, 0x84, 0xFF)));
+    private static readonly Brush SwatchEdgeBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0x80, 0x80, 0x80)));
+
+    /// <summary>Swatch template: an outer ring (transparent unless selected via Tag=="sel") around a
+    /// rounded color fill with a hairline edge so white/light swatches stay visible.</summary>
+    private static ControlTemplate SwatchTemplate()
+    {
+        var t = new ControlTemplate(typeof(Button));
+        var ring = new FrameworkElementFactory(typeof(Border));
+        ring.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        ring.SetValue(Border.BorderThicknessProperty, new Thickness(0));
+        ring.Name = "Ring";
+        var fill = new FrameworkElementFactory(typeof(Border));
+        fill.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        fill.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        fill.SetValue(Border.MarginProperty, new Thickness(3));
+        fill.SetValue(Border.BorderBrushProperty, SwatchEdgeBrush);
+        fill.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        ring.AppendChild(fill);
+        t.VisualTree = ring;
+
+        // Selection ring driven by the button's Tag flag set in UpdateSwatches.
+        var selected = new Trigger { Property = ContentControl.TagProperty, Value = "sel" };
+        selected.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(2), "Ring"));
+        selected.Setters.Add(new Setter(Border.BorderBrushProperty, SwatchRingBrush, "Ring"));
+        t.Triggers.Add(selected);
+        return t;
     }
 
     private static StackPanel Section(string? title)
@@ -477,9 +606,18 @@ public partial class EditorWindow : Window
     private void UpdateSwatches()
     {
         foreach (var sw in _swatches)
-            sw.BorderThickness = string.Equals((string)sw.Tag, _canvas.StrokeColor, StringComparison.OrdinalIgnoreCase)
-                ? new Thickness(3)
-                : new Thickness(1);
+            sw.Tag = _swatchHex.TryGetValue(sw, out var hex) && SameColor(hex, _canvas.StrokeColor)
+                ? "sel"
+                : null;
+    }
+
+    /// <summary>Palette entries are stored as 8-digit #AARRGGBB while the canvas color may carry a
+    /// user-edited 6-digit #RRGGBB (hex box), so compare parsed RGB instead of raw strings.</summary>
+    private static bool SameColor(string a, string b)
+    {
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        return PixelColor.TryParseHex(a, out var ca) && PixelColor.TryParseHex(b, out var cb)
+            && ca.R == cb.R && ca.G == cb.G && ca.B == cb.B;
     }
 
     /// <summary>Shows the sections that apply to the active tool (or the selected item) and syncs control values.</summary>
@@ -559,14 +697,22 @@ public partial class EditorWindow : Window
 
     // ---- actions bar ----
 
+    private Button _copyButton = null!, _saveButton = null!, _saveAsButton = null!, _pinButton = null!, _ocrButton = null!;
+
     private void BuildActions()
     {
+        // Dark strip matching the top toolbar, so the three surfaces (toolbar / workbench / actions)
+        // read as one design instead of a tinted theme bar over a dark canvas.
+        ActionsHost.Background = ToolbarBackBrush;
+        ActionsHost.BorderBrush = new SolidColorBrush(Color.FromArgb(0x30, 0x00, 0x00, 0x00));
+        ActionsHost.Padding = new Thickness(8, 6, 10, 6);
+
         var panel = new DockPanel();
         _statusLabel = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = SecondaryText(),
-            Margin = new Thickness(12, 0, 0, 0),
+            Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)),
+            Margin = new Thickness(12, 0, 4, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 320,
         };
@@ -575,37 +721,99 @@ public partial class EditorWindow : Window
         DockPanel.SetDock(right, Dock.Right);
         panel.Children.Add(right);
 
-        // WrapPanel: the action row overflows a single line at the min window width, which made
-        // Save As / Pin / Effects unreachable — it wraps instead. Docked-right status keeps its width.
+        // WrapPanel so the row wraps on a narrow window rather than clipping Save As / Pin / Effects.
         var left = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
-        _undoButton = MakeToolButton(L.Get("Action.Undo"), (_, _) => _canvas.DoUndo());
-        _redoButton = MakeToolButton(L.Get("Action.Redo"), (_, _) => _canvas.DoRedo());
+        _undoButton = MakeIconButton(EditorIcons.Undo(), "Action.Undo", (_, _) => _canvas.DoUndo());
+        _redoButton = MakeIconButton(EditorIcons.Redo(), "Action.Redo", (_, _) => _canvas.DoRedo());
         left.Children.Add(_undoButton);
         left.Children.Add(_redoButton);
-        left.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
-        left.Children.Add(MakeToolButton(L.Get("Editor.Fit"), (_, _) => FitZoom()));
-        var zoomOut = MakeToolButton("−", (_, _) => ZoomBy(1 / 1.25));
-        var zoomIn = MakeToolButton("+", (_, _) => ZoomBy(1.25));
-        zoomOut.Width = zoomIn.Width = 32;
-        left.Children.Add(zoomOut);
-        _zoomLabel = new TextBlock { Text = "100%", VerticalAlignment = VerticalAlignment.Center, Width = 52, TextAlignment = TextAlignment.Center };
+        left.Children.Add(ToolbarSeparator());
+
+        left.Children.Add(MakeIconButton(EditorIcons.Fit(), "Editor.Fit", (_, _) => FitZoom()));
+        left.Children.Add(MakeIconButton(EditorIcons.ZoomOut(), "Editor.ZoomOut", (_, _) => ZoomBy(1 / 1.25)));
+        _zoomLabel = new TextBlock
+        {
+            Text = "100%", VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White,
+            Width = 50, TextAlignment = TextAlignment.Center,
+        };
         left.Children.Add(_zoomLabel);
-        left.Children.Add(zoomIn);
-        left.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
-        left.Children.Add(MakeToolButton(L.Get("Action.Copy"), (_, _) => CopyResult()));
-        left.Children.Add(MakeToolButton(L.Get("Action.Save"), (_, _) => SaveQuick()));
-        left.Children.Add(MakeToolButton(L.Get("Action.SaveAs"), (_, _) => SaveAsDialog()));
-        left.Children.Add(MakeToolButton(L.Get("Action.Pin"), (_, _) => PinResult()));
-        left.Children.Add(new Separator { Margin = new Thickness(8, 2, 8, 2) });
-        _effectsButton = MakeToolButton(L.Get("Editor.Effects"), (_, _) => ToggleEffects());
+        left.Children.Add(MakeIconButton(EditorIcons.ZoomIn(), "Editor.ZoomIn", (_, _) => ZoomBy(1.25)));
+        left.Children.Add(ToolbarSeparator());
+
+        _copyButton = MakeLabeledButton(EditorIcons.Copy(), L.Get("Action.Copy"), (_, _) => CopyResult(), primary: false);
+        _saveButton = MakeLabeledButton(EditorIcons.Save(), L.Get("Action.Save"), (_, _) => SaveQuick(), primary: true);
+        _saveAsButton = MakeLabeledButton(EditorIcons.SaveAs(), L.Get("Action.SaveAs"), (_, _) => SaveAsDialog(), primary: false);
+        _pinButton = MakeLabeledButton(EditorIcons.Pin(), L.Get("Action.Pin"), (_, _) => PinResult(), primary: false);
+        _ocrButton = MakeLabeledButton(EditorIcons.Ocr(), L.Get("Action.Ocr"), (_, _) => RunOcr(), primary: false);
+        left.Children.Add(_copyButton);
+        left.Children.Add(_saveButton);
+        left.Children.Add(_saveAsButton);
+        left.Children.Add(_pinButton);
+        left.Children.Add(_ocrButton);
+        left.Children.Add(ToolbarSeparator());
+
+        _effectsButton = MakeIconButton(EditorIcons.Effects(), "Editor.Effects", (_, _) => ToggleEffects());
         left.Children.Add(_effectsButton);
-        _openFolderButton = MakeToolButton(L.Get("Action.OpenFolder"), (_, _) => OpenLastFolder());
+        _openFolderButton = MakeIconButton(EditorIcons.Folder(), "Action.OpenFolder", (_, _) => OpenLastFolder());
         left.Children.Add(_openFolderButton);
         panel.Children.Add(left);
 
         ActionsHost.Child = panel;
         RefreshUndoRedo();
         RefreshSelectionButtons();
+    }
+
+    /// <summary>A pill button with an icon + text label. Primary buttons (Save) get an accent fill;
+    /// secondary buttons are a subtle translucent surface. Used for the output actions.</summary>
+    private Button MakeLabeledButton(FrameworkElement icon, string text, RoutedEventHandler onClick, bool primary)
+    {
+        icon.Margin = new Thickness(0, 0, 6, 0);
+        var stack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(icon);
+        stack.Children.Add(new TextBlock
+        {
+            Text = text, VerticalAlignment = VerticalAlignment.Center, Foreground = Brushes.White, FontSize = 12.5,
+        });
+        var b = new Button
+        {
+            Style = null,
+            Content = stack,
+            Height = 30,
+            Margin = new Thickness(2, 0, 2, 0),
+            Padding = new Thickness(11, 0, 12, 0),
+            Background = primary ? ActiveToolBrush : new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(0),
+            Foreground = Brushes.White,
+            Cursor = Cursors.Hand,
+            Template = PillButtonTemplate(primary),
+        };
+        b.Click += onClick;
+        return b;
+    }
+
+    private static ControlTemplate PillButtonTemplate(bool primary)
+    {
+        var t = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        var content = new FrameworkElementFactory(typeof(ContentPresenter));
+        content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(content);
+        t.VisualTree = border;
+
+        var hoverBrush = primary
+            ? Frozen(new SolidColorBrush(Color.FromArgb(0xFF, 0x2E, 0x97, 0xFF)))
+            : Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)));
+        var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        over.Setters.Add(new Setter(Control.BackgroundProperty, hoverBrush));
+        t.Triggers.Add(over);
+        var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 0.4));
+        t.Triggers.Add(disabled);
+        return t;
     }
 
     private void RefreshUndoRedo()
@@ -651,9 +859,14 @@ public partial class EditorWindow : Window
 
     private void ZoomBy(double factor)
     {
+        // The ScrollViewer centers content smaller than the viewport, so the canvas's left edge
+        // sits at (viewport − content)/2 while the offset stays 0 — without that gap the anchor
+        // misses by up to half the empty space and the zoom visibly jumps to the wrong area.
+        double gapX = Math.Max(0, (Scroll.ViewportWidth - _canvas.ActualWidth) / 2);
+        double gapY = Math.Max(0, (Scroll.ViewportHeight - _canvas.ActualHeight) / 2);
         var viewportCenter = new Point(Scroll.ViewportWidth / 2, Scroll.ViewportHeight / 2);
-        var img = new PointD((Scroll.HorizontalOffset + viewportCenter.X) / _canvas.Zoom,
-            (Scroll.VerticalOffset + viewportCenter.Y) / _canvas.Zoom);
+        var img = new PointD((Scroll.HorizontalOffset + gapX + viewportCenter.X) / _canvas.Zoom,
+            (Scroll.VerticalOffset + gapY + viewportCenter.Y) / _canvas.Zoom);
         double oldZoom = _canvas.Zoom;
         _canvas.SetZoom(_canvas.Zoom * factor);
         AfterZoomChanged(oldZoom, img);
@@ -696,14 +909,18 @@ public partial class EditorWindow : Window
         _textEditTarget = existing;
         _textEditPosition = existing?.Position ?? position;
         var editor = _settings.Current.Editor;
+        _textOverlayBaseFontSize = existing?.FontSize ?? _canvas.FontSize;
         _textOverlay = new TextBox
         {
             AcceptsReturn = true,
-            FontSize = (existing?.FontSize ?? _canvas.FontSize) * _canvas.Zoom,
+            FontSize = _textOverlayBaseFontSize * _canvas.Zoom,
             FontFamily = new FontFamily(existing?.FontFamily ?? editor.FontFamily),
             FontWeight = (existing?.Bold ?? _canvas.FontBold) == true ? FontWeights.Bold : FontWeights.Normal,
             Foreground = AnnotationRenderer.BrushFor(existing?.StrokeColor ?? _canvas.StrokeColor),
-            Background = new SolidColorBrush(Color.FromArgb(0xC0, 0xFF, 0xFF, 0xFF)),
+            // Checkerboard instead of the old white 75% panel: a user-chosen white stroke was
+            // invisible on white. Any stroke color reads on the checker, and it matches the
+            // canvas's transparency semantics (same shared brush).
+            Background = AnnotationRenderer.CheckerboardBrush(),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)),
             BorderThickness = new Thickness(1.5),
             MinWidth = 130,
@@ -734,6 +951,9 @@ public partial class EditorWindow : Window
     private void PositionTextOverlay()
     {
         if (_textOverlay is null) return;
+        // Also rescale the font: AfterZoomChanged repositions on Ctrl+wheel zoom, and a stale
+        // font size would drift the WYSIWYG size away from what the canvas will draw.
+        _textOverlay.FontSize = _textOverlayBaseFontSize * _canvas.Zoom;
         _textOverlay.Margin = new Thickness(
             _textEditPosition.X * _canvas.Zoom - 2,
             _textEditPosition.Y * _canvas.Zoom - 2, 0, 0);
@@ -777,7 +997,15 @@ public partial class EditorWindow : Window
         _effectsVisible = !_effectsVisible;
         _effectsPanel.Visibility = _effectsVisible ? Visibility.Visible : Visibility.Collapsed;
         _propertiesScroll.Visibility = _effectsVisible ? Visibility.Collapsed : Visibility.Visible;
-        _effectsButton.FontWeight = _effectsVisible ? FontWeights.Bold : FontWeights.Normal;
+        _effectsButton.Background = _effectsVisible ? ActiveToolBrush : Brushes.Transparent;
+        // Entering panel slides in (motion audit #2); the exiting panel flips instantly — no exit
+        // anim. Construction-time calls (before _ready) must not animate, and diagnostic renders
+        // are covered by UiMotion.Suppress (values snap to final instead of animating).
+        if (_ready)
+        {
+            FrameworkElement entering = _effectsVisible ? _effectsPanel : _propertiesScroll;
+            UiMotion.FadeSlideIn(entering, dy: 8, ms: 180);
+        }
         if (_effectsVisible) SchedulePreview();
     }
 
@@ -919,7 +1147,7 @@ public partial class EditorWindow : Window
         {
             var suggested = FileNameTemplate.Format(_settings.Current.Output.FileNameTemplate, DateTime.Now,
                 _settings.Current.Output.Counter, _canvas.Document.WindowTitle ?? _result.WindowTitle, _result.Mode.ToString());
-            var path = _exporter.SaveAs(RenderFlattened(), suggested);
+            var path = _exporter.SaveAs(RenderFlattened(), suggested, this);
             if (path is null) return;
             _lastSavedPath = path;
             _dirty = false;
@@ -945,6 +1173,42 @@ public partial class EditorWindow : Window
         }
         Log.Info("No pin factory registered; copying instead.");
         CopyResult();
+    }
+
+    /// <summary>Recognizes text on the current (flattened) view and opens the result window. The
+    /// recognition runs on the thread pool (a busy status covers the wait); the window is owned by
+    /// the editor so it stays in front of it and closes with it.</summary>
+    private async void RunOcr()
+    {
+        if (_ocr is null)
+        {
+            SetStatus(L.Get("Ocr.Unavailable"));
+            return;
+        }
+        _ocrButton.IsEnabled = false;
+        SetStatus(L.Get("Ocr.Running"));
+        try
+        {
+            var image = RenderFlattened();
+            var outcome = await _ocr.RecognizeAsync(image, _settings.Current.Ocr.Accuracy);
+            if (_closed) return; // the editor went away while the recognizer was busy
+            SetStatus(L.Get("Ocr.Done", outcome.Lines.Count));
+            var window = new OcrResultWindow(outcome, _clipboard, _settings.Current.Ocr.CopyAfterRecognize)
+            {
+                Owner = this,
+            };
+            window.Show();
+            window.Activate();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Editor OCR failed", ex);
+            if (!_closed) SetStatus(L.Get("Ocr.Failed"));
+        }
+        finally
+        {
+            _ocrButton.IsEnabled = true;
+        }
     }
 
     // ---- keyboard ----
@@ -1072,6 +1336,7 @@ public partial class EditorWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _closed = true;
         CloseTextOverlay(commit: false);
         _previewTimer.Stop();
         // Remember the last-used effect settings for the next capture. macOS-style window shots carry

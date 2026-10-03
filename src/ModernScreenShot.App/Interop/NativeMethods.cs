@@ -148,7 +148,7 @@ public static class NativeMethods
     public static readonly IntPtr HWND_TOP = IntPtr.Zero;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
     public static readonly IntPtr HWND_NOTOPMOST = new(-2);
-    public const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040, SWP_NOOWNERZORDER = 0x0200;
+    public const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040, SWP_NOOWNERZORDER = 0x0200, SWP_FRAMECHANGED = 0x0020;
 
     public const int WM_HOTKEY = 0x0312;
     public const uint MOD_ALT = 1, MOD_CONTROL = 2, MOD_SHIFT = 4, MOD_WIN = 8, MOD_NOREPEAT = 0x4000;
@@ -207,7 +207,9 @@ public static class NativeMethods
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc proc, IntPtr dwData);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] [return: MarshalAs(UnmanagedType.Bool)]
+    // EntryPoint required: without it the marshaller binds GetMonitorInfoA (no plain export) while
+    // MONITORINFOEX marshals szDevice as wide chars, so DeviceName comes back garbled.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")] [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX info);
     [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
     [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
@@ -229,7 +231,10 @@ public static class NativeMethods
     public static extern IntPtr SetClipboardData(uint format, IntPtr hMem);
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool CloseClipboard();
-    [DllImport("user32.dll")] public static extern uint RegisterClipboardFormatW(string name);
+    // CharSet.Unicode is required: without it the string marshals as ANSI bytes into the wide
+    // LPCWSTR parameter, registering a garbled format name that other apps' "PNG" lookups never match.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegisterClipboardFormatW")]
+    public static extern uint RegisterClipboardFormatW(string name);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr GlobalAlloc(uint flags, nuint bytes);
     [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr GlobalLock(IntPtr hMem);

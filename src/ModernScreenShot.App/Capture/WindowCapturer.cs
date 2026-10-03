@@ -30,7 +30,7 @@ public sealed class WindowCapturer
         PixelBuffer? image = TryPrintWindow(hwnd, windowRect.Width, windowRect.Height, cropRel);
         if (image is null)
         {
-            Log.Warn($"PrintWindow produced no content for '{title}' (0x{hwnd:X}); falling back to screen capture.");
+            Log.Warn($"PrintWindow produced no usable content for '{title}' (0x{hwnd:X}); falling back to screen capture.");
             var onScreen = (frame.IsEmpty ? windowRect : frame)
                 .Intersect(GetVirtualScreen());
             if (onScreen.IsEmpty)
@@ -39,11 +39,11 @@ public sealed class WindowCapturer
                 return null;
             }
             image = _screen.Capture(onScreen, includeCursor: false);
-            if (IsBlank(image))
-            {
-                Log.Warn($"Screen fallback for '{title}' is blank; discarding.");
-                return null;
-            }
+            // The screen read is what the user actually sees (DWM-composed ground truth): keep it
+            // even when dark. A genuinely black region is truth; a black PrintWindow buffer is not.
+            double black = BlackFrame.NearBlackFraction(image);
+            if (black > 0.98)
+                Log.Warn($"Screen fallback for '{title}' is {black:P0} black — that region really is black on screen.");
         }
 
         if (transparentCorners && ShouldRoundCorners(hwnd))
@@ -94,18 +94,40 @@ public sealed class WindowCapturer
         return (style & NativeMethods.WS_CHILD) == 0;
     }
 
+    /// <summary>A PrintWindow result counts as suspect when more than this fraction of sampled
+    /// pixels is near-black. GPU-composited (DirectX/flip-mode) windows frequently render only the
+    /// DWM frame and caption chrome, leaving the whole client area black — the old all-black probe
+    /// passed such buffers because the frame itself was drawn, and the black client reached the
+    /// editor/pin/clipboard. Dark-theme apps (true #000 backgrounds) are rare enough that a 60%
+    /// black client is still a safe suspect: the fallback re-reads the same pixels from the screen,
+    /// so a false positive costs one retry and returns the identical picture.</summary>
+    private const double SuspectBlackFraction = 0.60;
+
     private static PixelBuffer? TryPrintWindow(IntPtr hwnd, int width, int height, PixelRect cropRel)
     {
         try
         {
-            PixelBuffer full;
-            using (var dib = new DibSection(width, height))
+            for (int attempt = 1; ; attempt++)
             {
-                if (!NativeMethods.PrintWindow(hwnd, dib.Dc, NativeMethods.PW_RENDERFULLCONTENT)) return null;
-                full = dib.ToPixelBuffer(forceOpaque: true);
+                PixelBuffer full;
+                using (var dib = new DibSection(width, height))
+                {
+                    if (!NativeMethods.PrintWindow(hwnd, dib.Dc, NativeMethods.PW_RENDERFULLCONTENT)) return null;
+                    full = dib.ToPixelBuffer(forceOpaque: true);
+                }
+                var cropped = cropRel.X == 0 && cropRel.Y == 0 && cropRel.Width == width && cropRel.Height == height ? full : full.Crop(cropRel);
+                double black = BlackFrame.NearBlackFraction(cropped);
+                if (black <= SuspectBlackFraction) return cropped;
+                if (attempt == 1)
+                {
+                    // Give a busy GPU app one moment to repaint, then print again.
+                    Log.Warn($"PrintWindow content is {black:P0} black (0x{hwnd:X}); retrying once.");
+                    Thread.Sleep(60);
+                    continue;
+                }
+                Log.Warn($"PrintWindow content still {black:P0} black after retry (0x{hwnd:X}); rejecting the buffer.");
+                return null;
             }
-            var cropped = cropRel.X == 0 && cropRel.Y == 0 && cropRel.Width == width && cropRel.Height == height ? full : full.Crop(cropRel);
-            return IsBlank(cropped) ? null : cropped;
         }
         catch (InvalidOperationException ex)
         {
@@ -120,14 +142,4 @@ public sealed class WindowCapturer
         NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN),
         NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN),
         NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN));
-
-    /// <summary>True if every sampled pixel is pure black (typical PrintWindow failure for GPU surfaces).</summary>
-    private static bool IsBlank(PixelBuffer img)
-    {
-        var d = img.Data;
-        int step = Math.Max(1, (img.Width * img.Height) / 20000) * 4;
-        for (int i = 0; i < d.Length; i += step)
-            if (d[i] != 0 || d[i + 1] != 0 || d[i + 2] != 0) return false;
-        return true;
-    }
 }

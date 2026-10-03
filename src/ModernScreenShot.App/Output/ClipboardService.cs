@@ -39,15 +39,26 @@ public sealed class ClipboardService
                 }
                 // SetClipboardData transfers ownership on success; on failure we still own the
                 // handle and must free it to avoid leaking GMEM_MOVEABLE memory per attempt.
-                var hDib = ToHGlobal(dibV5);
-                var hPng = ToHGlobal(png);
-                bool dibOk = NativeMethods.SetClipboardData(NativeMethods.CF_DIBV5, hDib) != IntPtr.Zero;
-                if (!dibOk) NativeMethods.GlobalFree(hDib);
-                bool pngOk = NativeMethods.SetClipboardData(PngFormat, hPng) != IntPtr.Zero;
-                if (!pngOk) NativeMethods.GlobalFree(hPng);
-                ok = dibOk && pngOk;
-                if (!ok)
-                    Log.Warn($"SetClipboardData failed (error {Marshal.GetLastWin32Error()}).");
+                // The try/finally covers an exception between allocs (GlobalLock/Copy failure)
+                // that would otherwise leak an already-allocated full-image handle.
+                IntPtr hDib = IntPtr.Zero, hPng = IntPtr.Zero;
+                try
+                {
+                    hDib = ToHGlobal(dibV5);
+                    hPng = ToHGlobal(png);
+                    bool dibOk = NativeMethods.SetClipboardData(NativeMethods.CF_DIBV5, hDib) != IntPtr.Zero;
+                    if (dibOk) hDib = IntPtr.Zero; // ownership transferred
+                    bool pngOk = NativeMethods.SetClipboardData(PngFormat, hPng) != IntPtr.Zero;
+                    if (pngOk) hPng = IntPtr.Zero;
+                    ok = dibOk && pngOk;
+                    if (!ok)
+                        Log.Warn($"SetClipboardData failed (error {Marshal.GetLastWin32Error()}).");
+                }
+                finally
+                {
+                    if (hDib != IntPtr.Zero) NativeMethods.GlobalFree(hDib);
+                    if (hPng != IntPtr.Zero) NativeMethods.GlobalFree(hPng);
+                }
             }
             finally
             {
@@ -78,6 +89,28 @@ public sealed class ClipboardService
             NativeMethods.GlobalUnlock(h);
         }
         return h;
+    }
+
+    /// <summary>Places plain text on the clipboard (OCR output). Same retry contract as image copies:
+    /// other processes can hold the clipboard open for short bursts, so a single attempt is flaky.</summary>
+    public bool TryPutText(string text)
+    {
+        for (int attempt = 1; attempt <= Retries; attempt++)
+        {
+            try
+            {
+                Clipboard.SetDataObject(text, copy: true);
+                Log.Info($"Text ({text.Length} chars) copied to clipboard.");
+                return true;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or OutOfMemoryException)
+            {
+                Log.Warn($"Clipboard text copy attempt {attempt} failed: {ex.Message}");
+                Thread.Sleep(50);
+            }
+        }
+        Log.Error("Clipboard stayed locked after retries; text copy aborted.");
+        return false;
     }
 
     /// <summary>Builds a bottom-up 32bpp BITMAPV5HEADER + pixels (BI_BITFIELDS with alpha mask).</summary>

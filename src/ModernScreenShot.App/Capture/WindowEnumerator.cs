@@ -19,7 +19,6 @@ public sealed class WindowEnumerator
     private readonly object _gate = new();
     private readonly int _ownProcessId = Environment.ProcessId;
     private List<WindowInfo> _topLevel = [];
-    private List<WindowInfo> _desktop = [];
     private readonly Dictionary<IntPtr, List<(WindowInfo Info, int Depth)>> _children = [];
 
     /// <summary>Visible top-level windows in z-order (topmost first), excluding this process and the desktop shell.</summary>
@@ -36,11 +35,10 @@ public sealed class WindowEnumerator
     /// <summary>Takes a fresh snapshot used by <see cref="HitTest"/>. Children are enumerated lazily per window.</summary>
     public void Refresh()
     {
-        var (windows, desktop) = EnumerateTopLevel();
+        var (windows, _) = EnumerateTopLevel();
         lock (_gate)
         {
             _topLevel = windows;
-            _desktop = desktop;
             _children.Clear();
         }
     }
@@ -51,14 +49,18 @@ public sealed class WindowEnumerator
     }
 
     /// <summary>
-    /// Returns the deepest window under (x, y) from the last snapshot. Falls back to the desktop window if nothing else matches.
+    /// Returns the deepest window under (x, y) from the last snapshot, or null over the bare
+    /// desktop. The desktop shell (Progman/WorkerW) is deliberately NOT a snap target: its bounds
+    /// cover the whole monitor, so returning it made hovering/clicking the desktop highlight and
+    /// select the entire screen — the "window snap only ever captures the full screen" report.
+    /// Regions over the desktop are drawn by dragging, not by snapping.
     /// </summary>
     public WindowInfo? HitTest(int x, int y, bool includeChildren)
     {
         WindowInfo? top;
         lock (_gate)
         {
-            top = _topLevel.FirstOrDefault(w => w.Bounds.Contains(x, y)) ?? _desktop.FirstOrDefault(w => w.Bounds.Contains(x, y));
+            top = _topLevel.FirstOrDefault(w => w.Bounds.Contains(x, y));
         }
         if (top is null || !includeChildren) return top;
 
@@ -72,6 +74,68 @@ public sealed class WindowEnumerator
             }
         }
 
+        return PickBestChild(top, children, x, y) ?? top;
+    }
+
+    /// <summary>
+    /// Builds a snapshot-style entry for an arbitrary window with the same DWM frame bounds the
+    /// enumerator uses everywhere else (parent/child element navigation), or null when the window
+    /// is gone, invisible, cloaked, minimized, the desktop shell, or has empty bounds.
+    /// </summary>
+    public WindowInfo? Describe(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd)
+            || !NativeMethods.IsWindowVisible(hwnd) || NativeMethods.IsIconic(hwnd) || NativeMethods.IsCloaked(hwnd)) return null;
+        string cls = NativeMethods.GetWindowClass(hwnd);
+        if (DesktopClasses.Contains(cls)) return null;
+        var bounds = NativeMethods.GetFrameBounds(hwnd).ToPixelRect();
+        if (bounds.IsEmpty) return null;
+        NativeMethods.GetWindowThreadProcessId(hwnd, out int pid);
+        return new WindowInfo(hwnd, NativeMethods.GetWindowTitle(hwnd), cls, bounds, pid, false);
+    }
+
+    /// <summary>
+    /// The parent of <paramref name="hwnd"/> described like a snapshot entry, or null when there is
+    /// no meaningful parent (a top-level window's GA_PARENT is the desktop, which is not a target).
+    /// </summary>
+    public WindowInfo? DescribeParent(IntPtr hwnd)
+    {
+        var parent = NativeMethods.GetAncestor(hwnd, NativeMethods.GA_PARENT);
+        if (parent == IntPtr.Zero || parent == NativeMethods.GetDesktopWindow() || parent == NativeMethods.GetShellWindow()) return null;
+        return Describe(parent);
+    }
+
+    /// <summary>
+    /// Deepest child of <paramref name="root"/> containing (x, y), reusing the cached child
+    /// enumeration and the same tie-breaking as <see cref="HitTest"/>. Null when the root is unknown
+    /// or no child covers the point (the caller keeps the current element).
+    /// </summary>
+    public WindowInfo? DeepestChildUnder(IntPtr root, int x, int y)
+    {
+        if (root == IntPtr.Zero) return null;
+        List<(WindowInfo Info, int Depth)> children;
+        lock (_gate)
+        {
+            if (!_children.TryGetValue(root, out children!))
+            {
+                children = EnumerateChildren(root);
+                _children[root] = children;
+            }
+        }
+        return Describe(root) is { } top ? PickBestChild(top, children, x, y) : null;
+    }
+
+    /// <summary>
+    /// Chooses the snap target under (x, y) from a top-level window's descendants: the deepest child
+    /// containing the point, breaking ties by smallest area. A child that fills (nearly) the whole
+    /// top-level window is a layout container, not a meaningful target — snapping to it just
+    /// reproduces the window rect one level down and hides the real controls — so it is skipped and
+    /// the caller falls back to the top-level window. Pure/static so it can be unit-tested without
+    /// live window enumeration.
+    /// </summary>
+    internal static WindowInfo? PickBestChild(WindowInfo top, IReadOnlyList<(WindowInfo Info, int Depth)> children, int x, int y)
+    {
+        long topArea = (long)top.Bounds.Width * top.Bounds.Height;
         WindowInfo? best = null;
         int bestDepth = -1;
         long bestArea = long.MaxValue;
@@ -79,12 +143,13 @@ public sealed class WindowEnumerator
         {
             if (!info.Bounds.Contains(x, y)) continue;
             long area = (long)info.Bounds.Width * info.Bounds.Height;
+            if (topArea > 0 && area >= topArea * 0.985) continue; // full-window container: skip
             if (depth > bestDepth || (depth == bestDepth && area < bestArea))
             {
                 best = info; bestDepth = depth; bestArea = area;
             }
         }
-        return best ?? top;
+        return best;
     }
 
     /// <summary>

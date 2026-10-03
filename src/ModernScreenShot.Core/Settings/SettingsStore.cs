@@ -1,4 +1,6 @@
 using System.Text.Json;
+using ModernScreenShot.Core.Imaging;
+using ModernScreenShot.Core.Ocr;
 
 namespace ModernScreenShot.Core.Settings;
 
@@ -63,16 +65,32 @@ public sealed class SettingsStore
     {
         s.Hotkeys ??= new HotkeySettings();
         s.Hotkeys.Bindings ??= HotkeySettings.CreateDefaults();
-        foreach (var (k, v) in HotkeySettings.CreateDefaults())
+        // Explicit JSON nulls deserialize over the initializer and would NRE the first consumer
+        // (HotkeyService.ReRegister at startup); replace them instead of trusting the values.
+        var keyDefaults = HotkeySettings.CreateDefaults();
+        foreach (var k in s.Hotkeys.Bindings.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList())
+            s.Hotkeys.Bindings[k] = keyDefaults[k];
+        foreach (var (k, v) in keyDefaults)
             s.Hotkeys.Bindings.TryAdd(k, v);
         s.Output ??= new OutputSettings();
         s.Capture ??= new CaptureSettings();
         s.Editor ??= new EditorSettings();
+        s.Ocr ??= new OcrSettings();
+        if (!Enum.IsDefined(s.Ocr.Accuracy)) s.Ocr.Accuracy = OcrAccuracy.Fast;
+        s.Editor.Palette ??= [.. new EditorSettings().Palette];
         s.Effects ??= BuiltInPresets.Clean().Settings;
         s.Effects.Shadow ??= new();
         s.Effects.Reflection ??= new();
         s.Effects.Frame ??= new();
         s.UserPresets ??= [];
+        foreach (var p in s.UserPresets)
+        {
+            p.Name ??= "";
+            p.Settings ??= new EffectSettings();
+            p.Settings.Shadow ??= new();
+            p.Settings.Reflection ??= new();
+            p.Settings.Frame ??= new();
+        }
         s.Output.JpgQuality = Math.Clamp(s.Output.JpgQuality, 1, 100);
         s.Output.WebPQuality = Math.Clamp(s.Output.WebPQuality, 1, 100);
         s.Capture.DelaySeconds = Math.Clamp(s.Capture.DelaySeconds, 1, 60);

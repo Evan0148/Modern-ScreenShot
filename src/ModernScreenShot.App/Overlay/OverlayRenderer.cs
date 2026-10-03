@@ -32,8 +32,8 @@ internal sealed class OverlayRenderer : FrameworkElement
 
     private readonly OverlaySession _session;
     private readonly OverlayWindow _win;
-    private readonly BitmapSource _frozenFull;
-    private readonly BitmapSource _slice;
+    private BitmapSource _frozenFull;   // swapped in place when the session refreshes the frozen frame (F5)
+    private BitmapSource _slice;
     private long _lastSignature = long.MinValue;
 
     // Reused across frames: a new Typeface/FontFamily per label caused steady per-move GC pressure.
@@ -44,6 +44,18 @@ internal sealed class OverlayRenderer : FrameworkElement
     // (+ Freeze) allocation on every single mouse-move frame.
     private CroppedBitmap? _magCache;
     private int _magCacheX = int.MinValue, _magCacheY = int.MinValue;
+
+    // Hover-box snap animation: when the detected element changes, the highlight glides from its old
+    // rect to the new one instead of jumping. Time-based exponential easing keeps the speed constant
+    // regardless of frame rate. Rects are window-local DIPs (what OnRender draws).
+    private const double HoverAnimSeconds = 0.14;     // ~140 ms to essentially settle
+    private IntPtr _hoverAnimHandle = IntPtr.Zero;    // the element _animRect is easing toward
+    private Rect _animRect;                            // currently drawn (interpolated) rect
+    private bool _animActive;                          // false until the first hover establishes a rect
+    private long _animLastTicks;                       // Stopwatch ticks of the previous advance
+    /// <summary>True while the hover box is still gliding toward its target; the window keeps the
+    /// render loop repainting this monitor until it settles.</summary>
+    internal bool HoverAnimating { get; private set; }
 
     /// <summary>
     /// True when anything this monitor draws may have changed since the last render. Lets idle
@@ -69,8 +81,11 @@ internal sealed class OverlayRenderer : FrameworkElement
         if (_session.CursorValid && mb.Contains(_session.Cursor.X, _session.Cursor.Y)) return long.MinValue;
         if (_session.Selection is { } sel && !mb.Intersect(sel).IsEmpty) return long.MinValue;
         if (_session.Hover is { } hv && !mb.Intersect(hv.Bounds).IsEmpty) return long.MinValue;
+        if (_session.HoverMonitorBounds is { } hmb && !mb.Intersect(hmb).IsEmpty) return long.MinValue;
         // Nothing on this monitor: a stable, cheap signature so repeated idle frames coalesce.
-        return ((long)_session.State << 1) | (_session.Selection is null ? 0L : 1L);
+        // The transient hint is session-wide (visible on every monitor), so it must be part of the
+        // signature — otherwise its expiry repaint would be skipped as "unchanged".
+        return ((long)_session.State << 2) | (_session.Selection is null ? 0L : 1L) | (_session.TransientHintActive ? 2L : 0L);
     }
 
     public OverlayRenderer(OverlaySession session, OverlayWindow win, BitmapSource frozenFull)
@@ -80,16 +95,34 @@ internal sealed class OverlayRenderer : FrameworkElement
         _frozenFull = frozenFull;
         Focusable = true;
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
+        _slice = BuildSlice(frozenFull);
+    }
 
-        var m = win.Monitor.Bounds;
-        var src = new Int32Rect(m.X - session.Virtual.X, m.Y - session.Virtual.Y, m.Width, m.Height);
+    /// <summary>Slice of the frozen frame covering this window's monitor, or the whole frame when
+    /// the monitor does not lie inside it (degenerate topology fallback).</summary>
+    private BitmapSource BuildSlice(BitmapSource frozenFull)
+    {
+        var m = _win.Monitor.Bounds;
+        var src = new Int32Rect(m.X - _session.Virtual.X, m.Y - _session.Virtual.Y, m.Width, m.Height);
         if (src.X < 0) { src.Width += src.X; src.X = 0; }
         if (src.Y < 0) { src.Height += src.Y; src.Y = 0; }
         src.Width = Math.Min(src.Width, frozenFull.PixelWidth - src.X);
         src.Height = Math.Min(src.Height, frozenFull.PixelHeight - src.Y);
-        _slice = src.Width > 0 && src.Height > 0
+        return src.Width > 0 && src.Height > 0
             ? new CroppedBitmap(frozenFull, src)
             : frozenFull;
+    }
+
+    /// <summary>Swaps in the refreshed frozen frame (F5 / ` / !): rebuilds this monitor's slice and
+    /// drops the magnifier cache, which still references the old frame's pixels.</summary>
+    internal void Reslice(BitmapSource frozenFull)
+    {
+        _frozenFull = frozenFull;
+        _slice = BuildSlice(frozenFull);
+        _magCache = null;
+        _magCacheX = int.MinValue;
+        _magCacheY = int.MinValue;
+        InvalidateVisual();
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -112,17 +145,78 @@ internal sealed class OverlayRenderer : FrameworkElement
             DrawSelectionDecorations(dc, w, h, sel, showHandles: _session.State == OverlayState.Selected);
         }
 
+        if (_session.TransientHint is { } hint) // e.g. the detection mode after Tab (timestamp-gated)
+        {
+            DrawLabel(dc, hint, w / 2, 46, w, h, center: true);
+        }
+
         DrawMagnifier(dc, w, h);
     }
 
     private void DrawHoverHighlight(DrawingContext dc, double w, double h)
     {
-        if (_session.Hover is not { } wi) return;
-        var r = _win.ToLocalDip(wi.Bounds);
+        var wi = _session.Hover;
+        PixelRect? monitorTarget = wi is null ? _session.HoverMonitorBounds : null;
+        if (wi is null && monitorTarget is null)
+        {
+            _animActive = false;
+            _hoverAnimHandle = IntPtr.Zero;
+            HoverAnimating = false;
+            return;
+        }
+        PixelRect bounds = wi?.Bounds ?? monitorTarget!.Value;
+        var target = _win.ToLocalDip(bounds);
+        // The whole-monitor target is not a window; a synthetic handle keeps its glide animation
+        // independent from every real hwnd.
+        var handle = wi?.Handle ?? new IntPtr(-1);
+        var r = AdvanceHoverAnim(handle, target);
         if (!r.IntersectsWith(new Rect(0, 0, w, h))) return;
         dc.DrawRectangle(HoverFillBrush, null, r);
         dc.DrawRectangle(null, AccentPen, r);
-        DrawLabel(dc, L.Get("Overlay.Size", wi.Bounds.Width, wi.Bounds.Height), r.Left, r.Top - 28, w, h);
+        // The size label reads the true element size (not the mid-animation rect) so it never flickers.
+        DrawLabel(dc, L.Get("Overlay.Size", bounds.Width, bounds.Height), r.Left, r.Top - 28, w, h);
+    }
+
+    /// <summary>Eases the drawn hover rect toward <paramref name="target"/>. A new element snaps the
+    /// animation origin to the current rect and glides; the same element continues its glide. Returns
+    /// the rect to draw this frame and updates <see cref="HoverAnimating"/>.</summary>
+    private Rect AdvanceHoverAnim(IntPtr handle, Rect target)
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        // Reset the clock baseline on first hover AND on a switch to a new element, so the elapsed
+        // time never includes however long the cursor rested on the previous element (which would
+        // otherwise make dt huge and snap straight to the new target with no glide). The switch frame
+        // itself moves ~0; the glide plays out over the following render frames.
+        if (!_animActive || handle != _hoverAnimHandle)
+        {
+            if (!_animActive) _animRect = target; // first hover: start already on the target
+            _hoverAnimHandle = handle;
+            _animActive = true;
+            _animLastTicks = now;
+        }
+        double dt = (now - _animLastTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+        _animLastTicks = now;
+        if (dt < 0) dt = 0;
+
+        // Exponential smoothing: fraction of the remaining distance to cover this frame. Frame-rate
+        // independent — a longer dt covers proportionally more ground.
+        double a = 1 - Math.Exp(-dt / (HoverAnimSeconds / 4.0));
+        _animRect = new Rect(
+            _animRect.X + (target.X - _animRect.X) * a,
+            _animRect.Y + (target.Y - _animRect.Y) * a,
+            _animRect.Width + (target.Width - _animRect.Width) * a,
+            _animRect.Height + (target.Height - _animRect.Height) * a);
+
+        // Settle: once within sub-pixel distance, snap exactly and stop requesting frames.
+        bool settled = Math.Abs(_animRect.X - target.X) < 0.5 && Math.Abs(_animRect.Y - target.Y) < 0.5
+            && Math.Abs(_animRect.Width - target.Width) < 0.5 && Math.Abs(_animRect.Height - target.Height) < 0.5;
+        if (settled)
+        {
+            _animRect = target;
+            HoverAnimating = false;
+        }
+        else HoverAnimating = true;
+        return _animRect;
     }
 
     private void DrawHint(DrawingContext dc, double w, double h) =>

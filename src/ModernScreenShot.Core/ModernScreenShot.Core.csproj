@@ -5,4 +5,26 @@
     <RootNamespace>ModernScreenShot.Core</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Offline OCR (PP-OCRv5 via ONNX Runtime). The package ships the v5 detection +
+         textline-orientation models and their latin recognition model; the Chinese recognition
+         model and dictionary that go with them are vendored under Assets/ocr (see OcrService). -->
+    <PackageReference Include="RapidOcrNet" Version="4.2.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Vendored PP-OCRv5 Chinese recognition model + dictionary (Apache-2.0, RapidOCR model zoo).
+         Linked into models/v5 — the folder RapidOcrNet copies its own models into — so OcrService
+         loads the whole pipeline from one directory. Content items also flow into the output of
+         referencing projects (App, Harness). README.md stays out of the build output. -->
+    <Content Include="Assets\ocr\ch_PP-OCRv5_rec_mobile.onnx" Link="models\v5\ch_PP-OCRv5_rec_mobile.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\ocr\ppocrv5_dict.txt" Link="models\v5\ppocrv5_dict.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Include="Assets\ocr\README.md" />
+  </ItemGroup>
+
 </Project>

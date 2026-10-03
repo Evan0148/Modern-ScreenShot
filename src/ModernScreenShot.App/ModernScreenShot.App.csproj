@@ -25,6 +25,10 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
+    <!-- Direct reference (Core references it too): RapidOcrNet copies its bundled ONNX models into
+         models/v5 via a package .targets file, and those build targets are not transitive — a
+         Core-only reference would leave the app's own output without the models. -->
+    <PackageReference Include="RapidOcrNet" Version="4.2.0" />
     <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4" />
     <PackageReference Include="WPF-UI" Version="4.3.0" />

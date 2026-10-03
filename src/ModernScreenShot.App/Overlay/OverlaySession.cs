@@ -11,11 +11,15 @@ using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
 using CaptureMode = ModernScreenShot.Core.Settings.CaptureMode;
+using L = ModernScreenShot.App.Localization.LocalizationService;
 
 namespace ModernScreenShot.App.Overlay;
 
-/// <summary>What the user picked in the overlay toolbar.</summary>
-public enum OverlayIntent { Edit, Copy, Save, Pin }
+/// <summary>How a confirmed capture should be dispatched. <see cref="Default"/> marks a confirm
+/// gesture (Enter / double-click / click-snap / window pick) that carried no explicit toolbar
+/// choice — dispatch then applies the user's configured "action after capture" setting.
+/// The toolbar buttons carry their own explicit intents.</summary>
+public enum OverlayIntent { Default, Edit, Copy, Save, Pin, Ocr }
 
 public sealed class OverlayOutcome
 {
@@ -28,7 +32,7 @@ public sealed class OverlayOutcome
     /// <summary>Set in Region mode when the confirmed selection coincides exactly with a snapshot
     /// window's bounds (click-snapped or hand-drawn); lets the capture bake the macOS-style shadow.</summary>
     public WindowInfo? SnappedWindow { get; init; }
-    public OverlayIntent Intent { get; init; } = OverlayIntent.Edit;
+    public OverlayIntent Intent { get; init; } = OverlayIntent.Default;
     /// <summary>Annotations drawn inline in the overlay; image pixels relative to Region. Null when none were drawn.</summary>
     public AnnotationDocument? AnnotationDocument { get; init; }
 }
@@ -91,25 +95,51 @@ internal sealed class OverlaySession
     private OverlayOutcome? _outcome;
     private bool _ended;
     private readonly bool _autoConfirm;
+    private readonly bool _autoDetect;              // Snipaste-style element snapping (settings toggle)
+    private bool _detectElements;                   // snapping master switch (settings toggle; WindowPick forces on)
+    private bool _detectChildren = true;            // Tab's other half: include child UI elements while snapping
     private readonly Action? _persistEditorOptions; // saves settings.json when options changed (invoked on confirm)
     private bool _erasing;                          // eraser stroke in progress (one drag = one undo record)
     private bool _erasedAny;                        // eraser stroke deleted at least one item
     private DateTime _colorFlashUntil = DateTime.MinValue;
+    // Precise operations: re-capture the frozen frame on demand (F5 / ` / !) and re-apply the last
+    // confirmed region (Shift+R). Both are optional — diagnostics/tests construct sessions without them.
+    /// <summary>Re-captures the frozen frame. The bool asks to FLIP the current cursor-capture
+    /// setting for this one refresh (F5 passes false = honor the setting, ` / ! pass true).</summary>
+    private readonly Func<bool, PixelBuffer>? _refreshFrozen;
+    private readonly PixelRect? _lastRegion;        // CaptureSettings.LastRegion (virtual-screen physical px)
+    // Transient status label (e.g. the detection mode after Tab): timestamp-gated like ColorFlash,
+    // no animation, so diagnostic render paths stay deterministic.
+    private string? _transientHint;
+    private DateTime _transientHintUntil = DateTime.MinValue;
 
-    internal PixelBuffer Frozen { get; }
+    internal PixelBuffer Frozen { get; private set; }
     internal PixelRect Virtual { get; }
-    internal BitmapSource FrozenSource { get; }
+    internal BitmapSource FrozenSource { get; private set; }
     internal CaptureMode Mode { get; }
     internal bool MagnifierEnabled { get; }
+    /// <summary>Force the overlay to the very top of the z-order (elevated capture priority) so it can
+    /// sit above always-on-top windows. Only set when the app is elevated (see CaptureService).</summary>
+    internal bool CapturePriority { get; }
     /// <summary>When true a finished selection immediately confirms as Edit (scrolling capture); the toolbar is hidden.</summary>
     internal bool AutoConfirmOnSelect => _autoConfirm;
 
     internal OverlayState State => _state;
     internal PixelRect? Selection => _selection.IsEmpty ? null : _selection;
     internal WindowInfo? Hover => _hover;
+    /// <summary>Bare-desktop snap target (Snipaste semantics): snapping is on, no window sits under
+    /// the cursor, so the whole monitor under the cursor is the target — highlighted on hover and
+    /// selected whole on click. Null while a real window is hovered or snapping is off.</summary>
+    internal PixelRect? HoverMonitorBounds { get; private set; }
+    internal bool AutoDetect => _detectElements;
     internal VPoint Cursor => _cursor;
     internal bool CursorValid => _cursorValid;
     internal bool ColorFlashActive => DateTime.UtcNow < _colorFlashUntil;
+    internal bool CanRefreshFrozen => _refreshFrozen is not null;
+    internal bool HasLastRegion => _lastRegion is { } r && !r.IsEmpty;
+    /// <summary>Transient status text shown near the top of every overlay window while active.</summary>
+    internal string? TransientHint => TransientHintActive ? _transientHint : null;
+    internal bool TransientHintActive => DateTime.UtcNow < _transientHintUntil;
 
     /// <summary>Active inline-annotation tool; null means the selection itself is being adjusted.</summary>
     internal EditorTool? Tool
@@ -140,7 +170,8 @@ internal sealed class OverlaySession
 
     public OverlaySession(CaptureMode mode, PixelBuffer frozen, PixelRect virtualScreen, BitmapSource frozenSource,
         MonitorService monitors, WindowEnumerator windowEnum, bool magnifierEnabled, EditorSettings editor,
-        bool autoConfirmOnSelect = false, Action? persistEditorOptions = null)
+        bool autoConfirmOnSelect = false, Action? persistEditorOptions = null, bool autoElementDetection = true,
+        bool capturePriority = false, Func<bool, PixelBuffer>? refreshFrozen = null, PixelRect? lastRegion = null)
     {
         Mode = mode is CaptureMode.Region or CaptureMode.WindowPick ? mode : CaptureMode.Region;
         Frozen = frozen;
@@ -150,8 +181,14 @@ internal sealed class OverlaySession
         _windowEnum = windowEnum;
         _editor = editor;
         MagnifierEnabled = magnifierEnabled;
+        CapturePriority = capturePriority;
         _autoConfirm = autoConfirmOnSelect;
         _persistEditorOptions = persistEditorOptions;
+        _refreshFrozen = refreshFrozen;
+        _lastRegion = lastRegion is { IsEmpty: false } region ? region : null;
+        // WindowPick always needs detection (that's the whole mode); Region honors the toggle.
+        _autoDetect = autoElementDetection || Mode == CaptureMode.WindowPick;
+        _detectElements = _autoDetect;
     }
 
     /// <summary>Shows one overlay per monitor and pumps the dispatcher until the session ends.</summary>
@@ -163,6 +200,7 @@ internal sealed class OverlaySession
             _cursorValid = true;
         }
         _hover = _cursorValid ? _windowEnum.HitTest(_cursor.X, _cursor.Y, includeChildren: true) : null;
+        HoverMonitorBounds = _hover is null && _cursorValid ? MonitorBoundsAt(_cursor) : null;
 
         var monitors = _monitors.GetMonitors();
         if (monitors.Count == 0) return null;
@@ -199,14 +237,14 @@ internal sealed class OverlaySession
 
     // ---- input entry points (called by OverlayWindow) ----
 
-    internal void OnMove(OverlayWindow w, VPoint p)
+    internal void OnMove(OverlayWindow? w, VPoint p)
     {
         _cursor = p;
         _cursorValid = true;
         switch (_state)
         {
             case OverlayState.Idle:
-                _hover = _windowEnum.HitTest(p.X, p.Y, includeChildren: true);
+                RefreshIdleHover();
                 break;
             case OverlayState.Dragging:
                 UpdateDrag(p);
@@ -287,6 +325,13 @@ internal sealed class OverlaySession
         }
         var drag = _drag;
         _drag = DragAction.None;
+        if (drag is DragAction.Move or DragAction.Resize && Doc.Items.OfType<MosaicItem>().Any())
+        {
+            // MoveSelectionTo recomputes mosaic throttled during the drag; the drag end gets the
+            // one exact pass so the pixels are never left at the last throttled frame.
+            _lastMosaicRecompute = DateTime.MinValue;
+            RecomputeMosaic();
+        }
 
         if (_state == OverlayState.Dragging && drag == DragAction.NewRegion)
         {
@@ -299,7 +344,7 @@ internal sealed class OverlaySession
                 _state = _selection.IsEmpty ? OverlayState.Idle : OverlayState.Selected;
                 if (_autoConfirm && !_selection.IsEmpty)
                 {
-                    Confirm(OverlayIntent.Edit);
+                    Confirm(OverlayIntent.Default);
                     return;
                 }
             }
@@ -309,7 +354,7 @@ internal sealed class OverlaySession
                 _state = OverlayState.Selected;
                 if (_autoConfirm)
                 {
-                    Confirm(OverlayIntent.Edit);
+                    Confirm(OverlayIntent.Default);
                     return;
                 }
             }
@@ -334,7 +379,7 @@ internal sealed class OverlaySession
             InvalidateAll();
             return;
         }
-        Confirm(OverlayIntent.Edit);
+        Confirm(OverlayIntent.Default);
     }
 
     /// <summary>Handles a key press; returns true when the key was consumed.</summary>
@@ -347,11 +392,46 @@ internal sealed class OverlaySession
                 return true;
             case Key.Enter:
                 if (_state == OverlayState.Selected && !_selection.IsEmpty && Mode == CaptureMode.Region)
-                    Confirm(OverlayIntent.Edit);
+                    Confirm(OverlayIntent.Default);
                 return true;
             case Key.C when MagnifierEnabled && _cursorValid && Keyboard.Modifiers == ModifierKeys.None:
                 CopyCursorColor();
                 InvalidateAll();
+                return true;
+            // ---- precise operations (Snipaste-style) ----
+            case Key.W when Keyboard.Modifiers == ModifierKeys.None:
+                MoveCursorBy(0, -1);
+                return true;
+            case Key.S when Keyboard.Modifiers == ModifierKeys.None:
+                MoveCursorBy(0, 1);
+                return true;
+            case Key.D when Keyboard.Modifiers == ModifierKeys.None:
+                MoveCursorBy(1, 0);
+                return true;
+            case Key.A when Keyboard.Modifiers == ModifierKeys.None
+                && (!CanAnnotate || _drag is DragAction.Move or DragAction.Resize):
+                // Inside a finished selection (no drag in progress) A stays the Arrow tool
+                // (see KeyToTool); before a region exists — and while any drag is live — it moves
+                // the pointer exactly like W/S/D.
+                MoveCursorBy(-1, 0);
+                return true;
+            case Key.Tab when Mode == CaptureMode.Region && Keyboard.Modifiers == ModifierKeys.None:
+                ToggleElementDetection();
+                return true;
+            case Key.D1 or Key.D2 when Keyboard.Modifiers == ModifierKeys.None:
+                SelectElementLevel(up: key == Key.D1);
+                return true;
+            case Key.R when Mode == CaptureMode.Region && Keyboard.Modifiers == ModifierKeys.Shift:
+                ApplyLastRegion(); // plain R is the Rect tool, so only Shift+R is bound
+                return true;
+            case Key.F5 when Keyboard.Modifiers == ModifierKeys.None && _refreshFrozen is not null:
+                RefreshFrozenFrame(toggleCursor: false);
+                return true;
+            case Key.Oem3 when (Keyboard.Modifiers is ModifierKeys.None or ModifierKeys.Shift) && _refreshFrozen is not null:
+                RefreshFrozenFrame(toggleCursor: true); // ` (and ~)
+                return true;
+            case Key.D1 when Keyboard.Modifiers == ModifierKeys.Shift && _refreshFrozen is not null:
+                RefreshFrozenFrame(toggleCursor: true); // "!" on US layouts
                 return true;
             case Key.V or Key.R or Key.E or Key.L or Key.A or Key.P or Key.H or Key.T or Key.N or Key.M or Key.X
                 when CanAnnotate && Keyboard.Modifiers == ModifierKeys.None:
@@ -408,13 +488,16 @@ internal sealed class OverlaySession
         var wi = _hover ?? (_cursorValid ? _windowEnum.HitTest(_cursor.X, _cursor.Y, includeChildren: true) : null);
         if (wi is null) return;
         _hover = wi;
+        // Clamp like every other region path: a window extending past the virtual screen (stale
+        // restored position) would otherwise yield a crop larger than the frozen frame.
+        var region = ClampToVirtual(wi.Bounds);
         EndSession(new OverlayOutcome
         {
             Confirmed = true,
-            Region = wi.Bounds,
+            Region = region,
             WindowHandle = wi.Handle,
             PickedWindow = wi,
-            Intent = OverlayIntent.Edit,
+            Intent = OverlayIntent.Default,
         });
     }
 
@@ -503,16 +586,25 @@ internal sealed class OverlaySession
         if ((dx != 0 || dy != 0) && Doc.Items.Count > 0)
         {
             foreach (var item in Doc.Items) item.Move(-dx, -dy);
-            if (_mosaicSource is not null || Doc.Items.OfType<MosaicItem>().Any()) RecomputeMosaic();
+            // Throttled: this runs per mouse move during selection drags and each pass copies +
+            // re-processes the whole selection crop (plus a BitmapSource.Create on top).
+            if (_mosaicSource is not null || Doc.Items.OfType<MosaicItem>().Any()) RecomputeMosaicThrottled();
         }
     }
 
     private void SelectWindowUnderCursor()
     {
-        var wi = _windowEnum.HitTest(_cursor.X, _cursor.Y, includeChildren: true);
+        if (!_detectElements) return; // a click snaps only when element detection is enabled
+        var wi = _windowEnum.HitTest(_cursor.X, _cursor.Y, includeChildren: _detectChildren);
         _hover = wi;
-        if (wi is null) return;
-        _selection = ClampToVirtual(wi.Bounds);
+        if (wi is not null)
+        {
+            _selection = ClampToVirtual(wi.Bounds);
+            return;
+        }
+        // Snipaste semantics: the bare desktop is a snap target — a click selects the whole monitor
+        // under the cursor (resize handles included; Enter confirms, dragging elsewhere redraws).
+        if (MonitorBoundsAt(_cursor) is { } monitor) SelectRegion(monitor);
     }
 
     // ---- inline annotation (Snipaste-style drawing on the frozen frame) ----
@@ -817,6 +909,193 @@ internal sealed class OverlaySession
         var moved = ClampToVirtual(_selection.Offset(dx, dy));
         if (!moved.IsEmpty) MoveSelectionTo(moved.X, moved.Y);
         InvalidateAll();
+    }
+
+    // ---- precise operations (Snipaste-style) ----
+
+    /// <summary>Moves the real cursor by (dx, dy) via SetCursorPos (clamped to the virtual screen)
+    /// and feeds the new position through the same OnMove path a physical mouse move takes, so
+    /// hover detection, an in-flight handle/body drag, an in-progress annotation stroke and the
+    /// magnifier all follow exactly as they would under the hand.</summary>
+    private void MoveCursorBy(int dx, int dy)
+    {
+        if (!_cursorValid) return;
+        int nx = Math.Clamp(_cursor.X + dx, Virtual.X, Math.Max(Virtual.X, Virtual.Right - 1));
+        int ny = Math.Clamp(_cursor.Y + dy, Virtual.Y, Math.Max(Virtual.Y, Virtual.Bottom - 1));
+        if (nx == _cursor.X && ny == _cursor.Y) return;
+        if (!NativeMethods.SetCursorPos(nx, ny)) return;
+        OnMove(null, new VPoint(nx, ny));
+    }
+
+    /// <summary>Tab: flips this session's detection granularity (windows ↔ include child UI
+    /// elements) and refreshes the hover highlight under the cursor for the new mode. Inert when
+    /// the settings have snapping off — Tab only splits the granularity of an enabled snapper.</summary>
+    private void ToggleElementDetection()
+    {
+        if (!_detectElements) return;
+        _detectChildren = !_detectChildren;
+        ShowTransientHint(L.Get(_detectChildren ? "Overlay.ElementDetectionElements" : "Overlay.ElementDetectionWindows"));
+        RefreshIdleHover();
+        InvalidateAll();
+    }
+
+    /// <summary>Bounds of the monitor containing <paramref name="p"/>, or null when the point is
+    /// outside every monitor (a stale cursor after a display topology change).</summary>
+    private PixelRect? MonitorBoundsAt(VPoint p)
+    {
+        foreach (var m in _monitors.GetMonitors())
+            if (m.Bounds.Contains(p.X, p.Y)) return m.Bounds;
+        return null;
+    }
+
+    /// <summary>Idle-state hover resolution shared by mouse moves, Tab and session start: the
+    /// top-most window/element under the cursor, or — Snipaste semantics — the whole monitor when
+    /// the cursor sits on the bare desktop (highlighted on hover, selected whole on click).</summary>
+    private void RefreshIdleHover()
+    {
+        if (!_detectElements || !_cursorValid)
+        {
+            _hover = null;
+            HoverMonitorBounds = null;
+            return;
+        }
+        _hover = _windowEnum.HitTest(_cursor.X, _cursor.Y, includeChildren: _detectChildren);
+        HoverMonitorBounds = _hover is null ? MonitorBoundsAt(_cursor) : null;
+    }
+
+    /// <summary>1 / 2: from the currently hovered or selected window/element, walk UP to its parent
+    /// window or DOWN to the deepest child window under the cursor. Both reuse the enumerator's
+    /// DWM-corrected window plumbing, so the result snaps exactly like a click-snap. Does nothing
+    /// when there is no current element and no parent/child to walk to.</summary>
+    private void SelectElementLevel(bool up)
+    {
+        var current = CurrentElement();
+        if (current is null) return;
+        if (up)
+        {
+            if (_windowEnum.DescribeParent(current.Handle) is not { } parent) return;
+            ApplyElement(parent);
+        }
+        else
+        {
+            if (!_cursorValid) return;
+            if (_windowEnum.DeepestChildUnder(current.Handle, _cursor.X, _cursor.Y) is not { } child) return;
+            ApplyElement(child);
+        }
+    }
+
+    private WindowInfo? CurrentElement()
+    {
+        if (_hover is { } hovered) return hovered;
+        if (!_selection.IsEmpty) return _windowEnum.FindByBounds(_selection);
+        return null;
+    }
+
+    /// <summary>Snaps the current element: in Idle only the hover highlight moves (the user still
+    /// clicks to confirm, exactly like mouse-driven snapping); in Selected the selection itself is
+    /// re-snapped to the new element's DWM bounds (annotations stay glued to their screen pixels).</summary>
+    private void ApplyElement(WindowInfo wi)
+    {
+        _hover = wi;
+        HoverMonitorBounds = null;
+        if (_state == OverlayState.Selected) SelectRegion(wi.Bounds);
+        else InvalidateAll();
+    }
+
+    /// <summary>Ctrl+A: sets the selection to the whole monitor under the CURSOR — keyboard focus
+    /// stays on the window activated at session start and never follows the mouse across monitors,
+    /// so the receiving window's monitor is only the fallback for an invalid cursor. Enters the
+    /// selected state; never auto-confirms.</summary>
+    internal void SelectFullMonitor(PixelRect fallbackMonitor)
+        => SelectRegion((_cursorValid ? MonitorBoundsAt(_cursor) : null) ?? fallbackMonitor);
+
+    /// <summary>Ctrl+A / Shift+R / element navigation: replaces the selection, keeping annotations
+    /// glued to their screen pixels (MoveSelectionTo semantics), and enters the selected state with
+    /// resize handles. Never auto-confirms.</summary>
+    internal void SelectRegion(PixelRect region)
+    {
+        var clipped = ClampToVirtual(region);
+        if (clipped.IsEmpty) return;
+        if (_selection.IsEmpty) _selection = clipped;
+        else MoveSelectionTo(clipped.X, clipped.Y, clipped.Width, clipped.Height);
+        _state = OverlayState.Selected;
+        InvalidateAll();
+    }
+
+    /// <summary>Shift+R: applies the persisted last region (CaptureSettings.LastRegion), intersected
+    /// with the monitor the cursor currently sits on — a region stored on another monitor must not
+    /// produce a crop outside this session's frame.</summary>
+    private void ApplyLastRegion()
+    {
+        if (_lastRegion is not { } last || last.IsEmpty) return;
+        var monitor = (_cursorValid ? MonitorBoundsAt(_cursor) : null) ?? Virtual;
+        var clipped = last.Intersect(monitor);
+        if (clipped.IsEmpty)
+        {
+            ShowTransientHint(L.Get("Overlay.LastRegionOutside"));
+            return;
+        }
+        SelectRegion(clipped);
+    }
+
+    /// <summary>F5 / ` / !: re-captures the frozen frame through the caller-supplied delegate.
+    /// Every overlay window is hidden around the capture so the composed desktop — and therefore
+    /// the fresh frame — can never contain the overlay UI itself. The frame size must stay
+    /// identical (same monitor topology), which keeps all selection coordinates valid.</summary>
+    private void RefreshFrozenFrame(bool toggleCursor)
+    {
+        if (_refreshFrozen is null || _ended) return;
+        foreach (var w in _windows) w.Hide();
+        PixelBuffer? fresh = null;
+        try
+        {
+            System.Threading.Thread.Sleep(140); // let DWM recompose without the overlay windows
+            fresh = _refreshFrozen(toggleCursor);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Refreshing the frozen frame failed", ex);
+        }
+        finally
+        {
+            foreach (var w in _windows) w.Show();
+        }
+        if (fresh is null) return;
+        if (fresh.Width != Frozen.Width || fresh.Height != Frozen.Height)
+        {
+            Log.Warn($"Refreshed frame is {fresh.Width}x{fresh.Height}, expected {Frozen.Width}x{Frozen.Height}; keeping the previous frame.");
+            return;
+        }
+        Frozen = fresh;
+        FrozenSource = fresh.ToBitmapSource();
+        // Caches derived from the old frame must not survive the swap.
+        _cropPristine = null;
+        _cropCacheRect = default;
+        if (Doc.Items.OfType<MosaicItem>().Any()) RecomputeMosaic();
+        foreach (var w in _windows) w.OnFrozenFrameSwapped();
+    }
+
+    /// <summary>Shows a short status label near the top of every overlay window (1.5 s,
+    /// timestamp-gated — the same deterministic pattern as ColorFlash, no animation).</summary>
+    private void ShowTransientHint(string text)
+    {
+        _transientHint = text;
+        _transientHintUntil = DateTime.UtcNow + TimeSpan.FromSeconds(1.5);
+        // One delayed repaint so the label actually disappears without further input.
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1650) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!TransientHintActive) InvalidateAll();
+        };
+        timer.Start();
+    }
+
+    /// <summary>Cross-window support for the F1 help card: a click on any monitor's overlay window
+    /// closes the card wherever it is shown.</summary>
+    internal void HideHelpPanels()
+    {
+        foreach (var w in _windows) w.HideHelpPanel();
     }
 
     private static PixelRect RectBetween(VPoint a, VPoint b) =>

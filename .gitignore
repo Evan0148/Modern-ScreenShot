@@ -10,3 +10,18 @@ tools/Harness/out/
 # local verification artifacts
 tools/verify_out/
 tools/verify_*.ps1
+
+# local build/test artifacts
+Modern-ScreenShot.zip
+oobe_*.png
+user_*.png
+verify_*.png
+verify_*.tree.txt
+verify_rf/
+src/ModernScreenShot.App/Properties/PublishProfiles/
+
+# agent working files
+.omo/evidence/
+.omo/notepads/
+.omo/boulder.json
+.omo/run-continuation/

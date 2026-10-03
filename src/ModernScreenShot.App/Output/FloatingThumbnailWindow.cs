@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -134,6 +133,11 @@ public sealed class FloatingThumbnailWindow : Window
         SourceInitialized += (_, _) => PlaceBottomRight(monitors);
         Loaded += (_, _) => PlayEntranceAnimation();
         Closed += OnClosedCleanup;
+
+        // Black-presentation guard (the stall that once showed a fully black welcome window): the
+        // card chrome is non-black, so a ~fully black on-screen sample while the thumbnail itself
+        // is not black means DWM never composed this surface — kick it.
+        PresentationGuard.Arm(this, () => PresentationGuard.ExpectedBlackFraction(thumbnail));
     }
 
     // ---- static frozen brushes ----
@@ -305,15 +309,12 @@ public sealed class FloatingThumbnailWindow : Window
 
     private void PlayEntranceAnimation()
     {
-        // Slide up + fade in from the bottom-right.
-        var transform = new TranslateTransform(0, 24);
-        RenderTransform = transform;
-        Opacity = 0;
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease };
-        var slide = new DoubleAnimation(24, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease };
-        BeginAnimation(OpacityProperty, fade);
-        transform.BeginAnimation(TranslateTransform.YProperty, slide);
+        // Slide up + fade in from the bottom-right, now token-driven (UiMotion). Same split as
+        // before: opacity 220ms, translate 24→0 over 260ms — FadeIn replaces the slide's own
+        // opacity leg (SnapshotAndReplace) so both original durations survive. A fresh window
+        // instance is built for every capture, so this replays on each Show.
+        UiMotion.FadeSlideIn(this, dy: 24, ms: 260);
+        UiMotion.FadeIn(this, ms: 220);
         _timer.Start(); // start auto-dismiss once shown
     }
 

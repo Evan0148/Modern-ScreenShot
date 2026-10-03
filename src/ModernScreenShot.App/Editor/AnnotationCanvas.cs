@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ModernScreenShot.App.Interop;
+using ModernScreenShot.App.Services;
 using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Settings;
@@ -150,14 +151,17 @@ public sealed class AnnotationCanvas : FrameworkElement
 
     public void DoUndo()
     {
-        if (_mode != CanvasMode.Idle || _preview is not null) return;
+        // A live _pendingSnapshot means an edit batch (slider drag, crop draft) is mid-flight even
+        // though _mode is Idle; undoing now would push that stale snapshot on the next commit and
+        // corrupt the undo chain. Block until the batch commits or aborts.
+        if (_mode != CanvasMode.Idle || _preview is not null || _pendingSnapshot is not null) return;
         var d = Undo.Undo(_doc);
         if (d is not null) ReplaceDocument(d);
     }
 
     public void DoRedo()
     {
-        if (_mode != CanvasMode.Idle || _preview is not null) return;
+        if (_mode != CanvasMode.Idle || _preview is not null || _pendingSnapshot is not null) return;
         var d = Undo.Redo(_doc);
         if (d is not null) ReplaceDocument(d);
     }
@@ -307,6 +311,26 @@ public sealed class AnnotationCanvas : FrameworkElement
     {
         _doc = doc;
         _selected = null;
+        // A doc.json that still parses can carry explicit JSON nulls that deserialize right over
+        // the property initializers (null Items/Effects crash consumers downstream). Repair before
+        // anything runs — the same hardening SettingsStore.Normalize does for hand-edited settings.
+        doc.Items ??= [];
+        doc.Items.RemoveAll(i => i is null);
+        doc.Effects ??= new EffectSettings();
+        doc.Effects.Shadow ??= new ShadowOptions();
+        doc.Effects.Reflection ??= new ReflectionOptions();
+        doc.Effects.Frame ??= new FrameOptions();
+        // A zero/negative document size (legacy or corrupt doc.json that still parses) would make
+        // this canvas element 0x0 — nothing ever renders and the editor shows its flat dark
+        // workbench where the screenshot should be. The base image is the ground truth of the
+        // capture, so fall back to it. Must run before RecomputeMosaic: the mosaic pass clips
+        // against the document size, and once-skipped rects would stay unrecomputed.
+        if (doc.ImageWidth <= 0 || doc.ImageHeight <= 0)
+        {
+            Log.Warn($"Document has invalid dimensions {doc.ImageWidth}x{doc.ImageHeight}; using the base image {_baseBuffer.Width}x{_baseBuffer.Height}.");
+            doc.ImageWidth = _baseBuffer.Width;
+            doc.ImageHeight = _baseBuffer.Height;
+        }
         // Docs created programmatically (or saved before text measuring existed) carry no measured
         // size; the GetBounds FontSize fallback then collapses selection handles and hit-testing
         // to a tiny box at the text origin. Measure on adoption; stored sizes stay untouched.
@@ -402,7 +426,14 @@ public sealed class AnnotationCanvas : FrameworkElement
         var full = new Rect(0, 0, ImageWidth, ImageHeight);
         dc.DrawImage(BaseImage, full);
         AnnotationRenderer.RenderDocument(dc, _doc, BaseImage, _mosaicSource);
-        if (_preview is { } pv) AnnotationRenderer.RenderItem(dc, pv, BaseImage, _mosaicSource);
+        if (_preview is { } pv)
+        {
+            AnnotationRenderer.RenderItem(dc, pv, BaseImage, _mosaicSource);
+            // Mosaic/spotlight drafts paint no visible pixels until commit (mosaic crops the not-
+            // yet-perturbed source; spotlight only dims from RenderDocument) — show the drag.
+            if (pv is MosaicItem or SpotlightItem && _mode == CanvasMode.Drawing)
+                dc.DrawRectangle(null, AccentPen(), AnnotationRenderer.ToRect(pv.GetBounds()));
+        }
 
         if (_doc.Crop is { } applied)
         {
@@ -425,11 +456,22 @@ public sealed class AnnotationCanvas : FrameworkElement
         if (_selected is not { } sel || Tool != EditorTool.Select || _mode == CanvasMode.Drawing) return;
         var b = AnnotationRenderer.ToRect(sel.GetBounds());
         double dash = 1.5 / Zoom;
-        var pen = new Pen(Brushes.White, dash) { DashStyle = new DashStyle([4 * dash, 3 * dash], 0) };
-        dc.DrawRectangle(null, pen, b);
+        var style = new DashStyle([4 * dash, 3 * dash], 0);
+        // Black underlay + white dash: a bare white dash vanishes on light screenshots.
+        dc.DrawRectangle(null, new Pen(Brushes.Black, dash * 2) { DashStyle = style }, b);
+        dc.DrawRectangle(null, new Pen(Brushes.White, dash) { DashStyle = style }, b);
 
         double hs = HandleScreenSize / Zoom;
-        foreach (var p in HandlePoints(b))
+        var handles = HandlePoints(b);
+        if (sel is LineItem)
+        {
+            // A line resizes only through its endpoints (HitHandle offers no N/S either); the
+            // edge-mid handles would advertise drags that do nothing.
+            var topMid = new Point(b.Left + b.Width / 2, b.Top);
+            var bottomMid = new Point(b.Left + b.Width / 2, b.Bottom);
+            handles = handles.Where(p => p != topMid && p != bottomMid).ToArray();
+        }
+        foreach (var p in handles)
             dc.DrawRectangle(Brushes.White, new Pen(Brushes.Black, dash), new Rect(p.X - hs / 2, p.Y - hs / 2, hs, hs));
 
         if (sel is LineItem l)
@@ -528,12 +570,15 @@ public sealed class AnnotationCanvas : FrameworkElement
         bool nearT = Math.Abs(p.Y - b.Y) <= grab, nearB = Math.Abs(p.Y - b.Bottom) <= grab;
         bool inX = p.X >= b.X - grab && p.X <= b.Right + grab;
         bool inY = p.Y >= b.Y - grab && p.Y <= b.Bottom + grab;
+        // ApplyResize has no N/S arm for lines (only endpoints move); offering those handles would
+        // enter a resize that mutates nothing yet still pushes an undo entry.
+        bool line = _selected is LineItem;
         if (nearL && nearT) return CanvasHandle.NW;
         if (nearR && nearT) return CanvasHandle.NE;
         if (nearL && nearB) return CanvasHandle.SW;
         if (nearR && nearB) return CanvasHandle.SE;
-        if (nearT && inX) return CanvasHandle.N;
-        if (nearB && inX) return CanvasHandle.S;
+        if (!line && nearT && inX) return CanvasHandle.N;
+        if (!line && nearB && inX) return CanvasHandle.S;
         if (nearL && inY) return CanvasHandle.W;
         if (nearR && inY) return CanvasHandle.E;
         if (inX && inY) return CanvasHandle.Body;
@@ -927,7 +972,9 @@ public sealed class AnnotationCanvas : FrameworkElement
             PenItem pen => pen.Points.Count >= 2,
             LineItem l => MathHypot(l.End.X - l.Start.X, l.End.Y - l.Start.Y) >= 2 / Zoom,
             BoxItem b => b.Rect.Width >= 2 / Zoom && b.Rect.Height >= 2 / Zoom,
-            MagnifierItem m => m.SourceRect.Width >= 2 / Zoom && m.SourceRect.Height >= 2 / Zoom,
+            // Match DrawMagnifier's render floor (source ≥4px, radius ≥4): anything smaller passes
+            // validity, commits, then renders nothing yet stays hit-testable as a ghost selection.
+            MagnifierItem m => m.SourceRect.Width >= 4 / Zoom && m.SourceRect.Height >= 4 / Zoom && m.TargetRadius >= 4,
             _ => false,
         };
         if (valid)

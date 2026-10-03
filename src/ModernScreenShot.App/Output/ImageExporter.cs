@@ -46,8 +46,9 @@ public sealed class ImageExporter
         return path;
     }
 
-    /// <summary>Saves with a SaveFileDialog. Returns the path, or null when cancelled.</summary>
-    public string? SaveAs(PixelBuffer image, string suggestedName)
+    /// <summary>Saves with a SaveFileDialog. Returns the path, or null when cancelled. Pass an
+    /// owner so a topmost caller (pin window) cannot draw over the modal dialog.</summary>
+    public string? SaveAs(PixelBuffer image, string suggestedName, System.Windows.Window? owner = null)
     {
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
@@ -55,7 +56,7 @@ public sealed class ImageExporter
             Filter = "PNG (*.png)|*.png|JPEG (*.jpg)|*.jpg|WebP (*.webp)|*.webp",
             FilterIndex = _settings.Current.Output.Format switch { ImageFormat.Jpg => 2, ImageFormat.WebP => 3, _ => 1 },
         };
-        if (dialog.ShowDialog() != true) return null;
+        if (dialog.ShowDialog(owner) != true) return null;
         var format = Path.GetExtension(dialog.FileName).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => ImageFormat.Jpg,

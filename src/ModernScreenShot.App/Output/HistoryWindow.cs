@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using ModernScreenShot.App.Capture;
+using ModernScreenShot.App.Controls;
 using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Localization;
 using ModernScreenShot.App.Services;
@@ -42,6 +43,7 @@ public sealed class HistoryWindow : Window
         _openInEditor = openInEditor;
 
         Title = L.Get("History.Title");
+        AppTitleBar.Attach(this); // custom title bar (Controls/AppTitleBar) replaces the OS caption
         Width = 960;
         Height = 640;
         MinWidth = 620;
@@ -56,16 +58,27 @@ public sealed class HistoryWindow : Window
         left.Children.Add(MakeButton(L.Get("History.ClearAll"), (_, _) => ClearAll()));
         left.Children.Add(_countLabel);
         toolbar.Children.Add(left);
-        var close = MakeButton(L.Get("Action.Close"), (_, _) => Close());
-        DockPanel.SetDock(close, Dock.Right);
-        toolbar.Children.Add(close);
+        // Close lives on the custom title bar (× button) — no redundant toolbar close button.
 
         var root = new DockPanel();
         root.Children.Add(toolbar);
         DockPanel.SetDock(toolbar, Dock.Top);
         var scroll = new ScrollViewer { Content = _grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         root.Children.Add(scroll);
-        Content = root;
+
+        // Custom title bar row above the toolbar row (Controls/AppTitleBar replaces the OS caption).
+        var titleBar = new AppTitleBar
+        {
+            Text = L.Get("History.Title"),
+            ShowMin = true,
+            ShowMax = true,
+            ShowClose = true,
+        };
+        var outer = new DockPanel();
+        outer.Children.Add(titleBar);
+        DockPanel.SetDock(titleBar, Dock.Top);
+        outer.Children.Add(root);
+        Content = outer;
 
         store.Changed += OnStoreChanged;
         Loaded += (_, _) => Refresh();
@@ -199,6 +212,10 @@ public sealed class HistoryWindow : Window
         catch (Exception ex)
         {
             Log.Error($"Opening history item {entry.Id} failed", ex);
+            // The file vanished/corrupted between listing and opening: a silent no-op would leave
+            // the user double-clicking a dead card forever. Surface it where they clicked.
+            MessageBox.Show(this, string.Format(L.Get("History.OpenFailed"), ex.Message),
+                L.Get("History.Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

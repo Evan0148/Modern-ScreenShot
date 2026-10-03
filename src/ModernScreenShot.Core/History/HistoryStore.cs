@@ -93,7 +93,7 @@ public sealed class HistoryStore
                 result.Add(e);
             }
             catch (JsonException) { /* skip corrupt entry */ }
-            catch (IOException) { /* skip locked entry */ }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* skip locked/ACL'd entry */ }
         }
         return [.. result.OrderByDescending(e => e.CreatedAt)];
     }
@@ -101,33 +101,54 @@ public sealed class HistoryStore
     /// <summary>Best-effort delete; returns false when the entry directory could not be removed.</summary>
     public bool Delete(HistoryEntry e)
     {
-        try
-        {
-            if (System.IO.Directory.Exists(e.Directory)) System.IO.Directory.Delete(e.Directory, true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            System.Diagnostics.Debug.WriteLine($"History delete failed for '{e.Directory}': {ex.Message}");
-            return false;
-        }
+        if (!DeleteDirectory(e.Directory)) return false;
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
     public void Clear()
     {
-        foreach (var e in List()) Delete(e);
+        // Fire Changed once at the end: HistoryWindow rebuilds its whole grid on every event, so
+        // per-entry events turn "clear all" into an O(n²) refresh storm on large histories.
+        bool any = false;
+        foreach (var e in List()) any |= DeleteDirectory(e.Directory);
+        if (any) Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static bool DeleteDirectory(string directory)
+    {
+        try
+        {
+            if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Debug.WriteLine($"History delete failed for '{directory}': {ex.Message}");
+            return false;
+        }
+        return true;
     }
 
     public void Prune(int maxCount)
     {
         if (maxCount <= 0) return; // 0 = unlimited (deleting everything would be data loss)
         var all = List();
+        bool any = false;
         foreach (var e in all.Skip(maxCount))
+            any |= DeleteDirectory(e.Directory);
+        // Same-thread sweep of crashed writes: dirs without meta.json can never be listed or
+        // pruned again. Age gate keeps a just-created entry (files written after the directory)
+        // out of harm's way.
+        foreach (var dir in System.IO.Directory.EnumerateDirectories(Root))
         {
-            try { System.IO.Directory.Delete(e.Directory, true); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* in use; retry next prune */ }
+            if (File.Exists(Path.Combine(dir, "meta.json"))) continue;
+            try
+            {
+                if (DateTime.UtcNow - System.IO.Directory.GetLastWriteTimeUtc(dir) > TimeSpan.FromMinutes(10))
+                    any |= DeleteDirectory(dir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* skip */ }
         }
-        if (all.Count > maxCount) Changed?.Invoke(this, EventArgs.Empty);
+        if (any) Changed?.Invoke(this, EventArgs.Empty);
     }
 }

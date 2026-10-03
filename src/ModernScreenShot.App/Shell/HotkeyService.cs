@@ -28,6 +28,26 @@ public sealed class HotkeyService : IDisposable
     /// <summary>Actions whose last registration attempt failed (occupied by another application).</summary>
     public IReadOnlyList<string> FailedActions => _failedActions;
 
+    /// <summary>
+    /// Unregisters every hotkey so the keyboard input reaches capture UIs (the hotkey edit dialog)
+    /// instead of being swallowed by RegisterHotKey system-wide. Every Suspend must be paired with
+    /// a <see cref="Resume"/>; until then the app's global hotkeys are inert.
+    /// </summary>
+    public void Suspend()
+    {
+        if (_disposed) return;
+        UnregisterAll();
+        Log.Info("Hotkeys suspended: keyboard capture UI is open.");
+    }
+
+    /// <summary>Re-registers the configured hotkeys after <see cref="Suspend"/>.</summary>
+    public void Resume()
+    {
+        if (_disposed) return;
+        ReRegister();
+        Log.Info("Hotkeys resumed after capture UI closed.");
+    }
+
     /// <summary>Creates the message-only window and registers every configured hotkey.</summary>
     public void Start()
     {
@@ -122,7 +142,8 @@ public sealed class HotkeyService : IDisposable
         _registered.Clear();
     }
 
-    private static string VirtualKeyName(int vk)
+    /// <summary>Display name ("Ctrl", "A", "F5", "Num1", ...) for a Win32 virtual key code.</summary>
+    public static string VirtualKeyName(int vk)
     {
         switch (vk)
         {
@@ -149,7 +170,13 @@ public sealed class HotkeyService : IDisposable
             case 0x2D: return "Ins";
             case 0x2E: return "Del";
             case >= 0x60 and <= 0x69: return $"Num{vk - 0x60}";
-            case >= 0x6A and <= 0x6F: return $"Num{vk - 0x6A + 1}"; // *, +, -, ., /
+            // Numpad operators: the operator glyph is the name the user pressed — the old
+            // "Num1".."Num6" mapping displayed a different key than the one on the keyboard.
+            case 0x6A: return "Num*";
+            case 0x6B: return "Num+";
+            case 0x6D: return "Num-";
+            case 0x6E: return "Num.";
+            case 0x6F: return "Num/";
             default:
                 try
                 {

@@ -1,0 +1,34 @@
+<Window x:Class="ModernScreenShot.App.Ocr.OcrResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:controls="clr-namespace:ModernScreenShot.App.Controls"
+        Title="{DynamicResource Ocr.Title}"
+        Width="560" Height="470" MinWidth="380" MinHeight="260"
+        WindowStartupLocation="CenterScreen" UseLayoutRounding="True"
+        Background="{DynamicResource ApplicationBackgroundBrush}">
+    <DockPanel LastChildFill="True">
+        <controls:AppTitleBar DockPanel.Dock="Top" Text="{DynamicResource Ocr.Title}"
+                              ShowMin="True" ShowMax="True" ShowClose="True"/>
+        <Border DockPanel.Dock="Bottom" Padding="12,8"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <ui:Button x:Name="CopyButton" Content="{DynamicResource Action.Copy}" Appearance="Primary"
+                               MinWidth="96" Click="OnCopyClick"/>
+                    <ui:Button Content="{DynamicResource Action.Close}" Margin="8,0,0,0"
+                               MinWidth="96" Click="OnCloseClick"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="4,0,12,0"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                           TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+        <!-- Read-only on purpose: the raw recognition output is what lands on the clipboard, and an
+             editable box would create "unsaved changes" semantics this window has no way to honor. -->
+        <TextBox x:Name="TextHost" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                 BorderThickness="0" Background="Transparent" Padding="14,12" FontSize="14"
+                 IsReadOnlyCaretVisible="False"/>
+    </DockPanel>
+</Window>

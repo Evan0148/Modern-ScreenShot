@@ -26,26 +26,33 @@ public sealed class ColorPickerButton : Button
         ToolTip = L.Get("Prop.CustomColor");
 
         var hexRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 6, 4, 0) };
-        hexRow.Children.Add(new TextBlock { Text = L.Get("Prop.Hex"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+        var hexLabel = new TextBlock { Text = L.Get("Prop.Hex"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+        // Theme-following surfaces: hardcoded white here rendered white-on-white text in dark theme.
+        hexLabel.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
+        hexRow.Children.Add(hexLabel);
         hexRow.Children.Add(_hexBox);
         var popupContent = new StackPanel
         {
             Margin = new Thickness(8),
-            Background = Brushes.White,
         };
+        popupContent.SetResourceReference(Panel.BackgroundProperty, "ApplicationBackgroundBrush");
         popupContent.Children.Add(_picker);
         popupContent.Children.Add(hexRow);
 
+        var popupBorder = new Border
+        {
+            Child = popupContent,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            // Pop origin at the trigger button's top edge (Placement=Bottom), per motion audit #3.
+            RenderTransformOrigin = new Point(0.5, 0),
+        };
+        popupBorder.SetResourceReference(Border.BackgroundProperty, "ApplicationBackgroundBrush");
+        popupBorder.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
+
         _popup = new Popup
         {
-            Child = new Border
-            {
-                Child = popupContent,
-                Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-            },
+            Child = popupBorder,
             Placement = PlacementMode.Bottom,
             StaysOpen = false,
             AllowsTransparency = true,
@@ -65,7 +72,16 @@ public sealed class ColorPickerButton : Button
                 RaiseColorChanged();
             }
         };
-        Click += (_, _) => { _popup.PlacementTarget = this; _popup.IsOpen = true; };
+        // Popup entrance (motion audit #3): PopIn the popup's child right before IsOpen. The
+        // discrete from-keyframes re-seed opacity 0 / scale 0.96 on every open, so repeated
+        // open/close always replays cleanly (Completed commits 1/1 as plain values afterwards).
+        // Never pops from scale(0); reduced motion falls back to the opacity fade only.
+        Click += (_, _) =>
+        {
+            _popup.PlacementTarget = this;
+            UiMotion.PopIn(popupBorder, fromScale: 0.96, ms: 150);
+            _popup.IsOpen = true;
+        };
     }
 
     /// <summary>Current color as ARGB hex string.</summary>

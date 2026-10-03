@@ -45,6 +45,9 @@
     <sys:String x:Key="Action.Edit">Edit</sys:String>
     <sys:String x:Key="Action.Cancel">Cancel</sys:String>
     <sys:String x:Key="Action.Close">Close</sys:String>
+    <sys:String x:Key="Action.Minimize">Minimize</sys:String>
+    <sys:String x:Key="Action.Maximize">Maximize</sys:String>
+    <sys:String x:Key="Action.Restore">Restore</sys:String>
     <sys:String x:Key="Action.Delete">Delete</sys:String>
     <sys:String x:Key="Action.OpenFolder">Open folder</sys:String>
     <sys:String x:Key="Action.Undo">Undo</sys:String>
@@ -57,6 +60,7 @@
     <sys:String x:Key="Action.SendToBack">Send to back</sys:String>
     <sys:String x:Key="Action.CopyColor">Copy color</sys:String>
     <sys:String x:Key="Action.Stop">Stop</sys:String>
+    <sys:String x:Key="Action.Ocr">Text OCR</sys:String>
 
     <!-- Toast -->
     <sys:String x:Key="Toast.Copied">Copied to clipboard</sys:String>
@@ -182,18 +186,68 @@
     <sys:String x:Key="Settings.After.SaveOnly">Save only</sys:String>
     <sys:String x:Key="Settings.After.Pin">Pin to screen</sys:String>
     <sys:String x:Key="Settings.After.Thumbnail">Floating thumbnail</sys:String>
+    <sys:String x:Key="Settings.After.Ocr">Text OCR</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">Delay (seconds)</sys:String>
-    <sys:String x:Key="Settings.ShowMagnifier">Show magnifier while selecting</sys:String>
+    <sys:String x:Key="Settings.AutoElementDetection">Auto-detect and snap to elements</sys:String>
+    <sys:String x:Key="Settings.ShowMagnifier">Show magnifier</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">Include mouse cursor</sys:String>
-    <sys:String x:Key="Settings.TransparentCorners">Transparent rounded corners for window captures</sys:String>
-    <sys:String x:Key="Settings.MacShadow">Apply macOS-style shadow to window captures</sys:String>
+    <sys:String x:Key="Settings.TransparentCorners">Keep transparent corners</sys:String>
+    <sys:String x:Key="Settings.MacShadow">macOS-style window shadow</sys:String>
+    <sys:String x:Key="Settings.MacShadowFormatHint">Only PNG/WebP keep the transparent shadow — JPG fills the surround with white.</sys:String>
+    <sys:String x:Key="Settings.CapturePriority">High capture priority (capture always-on-top windows)</sys:String>
+    <sys:String x:Key="Settings.CapturePriorityHint">The capture overlay is forced to the very top so it can sit above and capture always-on-top windows.</sys:String>
+    <sys:String x:Key="Settings.CapturePriorityHintNormal">Capturing content above always-on-top or elevated windows requires running as administrator.</sys:String>
+    <sys:String x:Key="Settings.RunAsAdmin">Restart as administrator</sys:String>
+    <sys:String x:Key="Settings.RunAsAdminConfirm">Modern-ScreenShot will restart with administrator rights. Continue?</sys:String>
     <sys:String x:Key="Settings.HistoryMax">History size (items)</sys:String>
     <sys:String x:Key="Settings.PressKeys">Press a key combination…</sys:String>
-    <sys:String x:Key="Settings.HotkeyHint">Click a button, then press the combination. Esc clears the binding; duplicates are marked red.</sys:String>
+    <sys:String x:Key="Settings.HotkeyHint">Click a shortcut or its pencil icon to change it; duplicates are marked red.</sys:String>
+    <sys:String x:Key="Settings.HotkeyConfigure">Configure shortcut</sys:String>
+    <sys:String x:Key="Settings.HotkeyDialogHint">Shortcuts must start with the Windows key, Ctrl, Alt or Shift.</sys:String>
+    <sys:String x:Key="Settings.HotkeyError">Shortcuts need a Ctrl, Alt, Shift or Win modifier.</sys:String>
+    <sys:String x:Key="Settings.HotkeyAltGr">Keyboard layouts that use AltGr may conflict with this combination.</sys:String>
+    <sys:String x:Key="Settings.HotkeyConflictRow">This combination is already assigned to "{0}". You can still save.</sys:String>
+    <sys:String x:Key="Settings.HotkeyReset">Reset</sys:String>
+    <sys:String x:Key="Settings.HotkeyClear">Clear</sys:String>
+    <sys:String x:Key="Settings.HotkeyUnboundHint">Saving will leave this action without a global shortcut.</sys:String>
     <sys:String x:Key="Settings.Conflict">Already in use</sys:String>
     <sys:String x:Key="Settings.Version">Version {0}</sys:String>
     <sys:String x:Key="Settings.SettingsPath">Settings file: {0}</sys:String>
     <sys:String x:Key="Settings.OpenLog">Open log folder</sys:String>
+    <!-- Redesigned settings: group captions, row subtitles and placeholders -->
+    <sys:String x:Key="Settings.Group.Appearance">Appearance</sys:String>
+    <sys:String x:Key="Settings.Group.Startup">Startup</sys:String>
+    <sys:String x:Key="Settings.Group.Selection">Selection</sys:String>
+    <sys:String x:Key="Settings.Group.WindowCapture">Window capture</sys:String>
+    <sys:String x:Key="Settings.Group.Advanced">Advanced</sys:String>
+    <sys:String x:Key="Settings.Group.File">File</sys:String>
+    <sys:String x:Key="Settings.Group.Automation">Automation</sys:String>
+    <sys:String x:Key="Settings.Group.Ocr">Text recognition (OCR)</sys:String>
+    <sys:String x:Key="Settings.StartWithWindows.Sub">Launch automatically at sign-in and stay in the tray.</sys:String>
+    <sys:String x:Key="Settings.DelaySeconds.Sub">Countdown before a delayed capture begins.</sys:String>
+    <sys:String x:Key="Settings.AutoElementDetection.Sub">Highlight the window/control under the cursor and snap the selection to it on click.</sys:String>
+    <sys:String x:Key="Settings.ShowMagnifier.Sub">Show a magnifier at the selection edge for pixel-precise alignment.</sys:String>
+    <sys:String x:Key="Settings.CaptureCursor.Sub">Include the mouse pointer in the screenshot.</sys:String>
+    <sys:String x:Key="Settings.TransparentCorners.Sub">Make the area outside Windows 11 rounded corners transparent.</sys:String>
+    <sys:String x:Key="Settings.HistoryMax.Sub">Maximum screenshots kept in history; 0 disables history.</sys:String>
+    <sys:String x:Key="Settings.SaveDirPlaceholder">Leave empty to use the default folder</sys:String>
+    <sys:String x:Key="Settings.AutoSave.Sub">Save to the folder above immediately after capture.</sys:String>
+    <sys:String x:Key="Settings.AutoCopy.Sub">Copy to the system clipboard automatically after capture.</sys:String>
+    <sys:String x:Key="Settings.AfterRegion.Sub">Default action after a region or window capture.</sys:String>
+    <sys:String x:Key="Settings.AfterOther.Sub">Default action after full-screen and other captures.</sys:String>
+    <sys:String x:Key="Settings.ApplyEffects.Sub">Run the effect pipeline (shadow, frame, etc.) when copying or saving from the editor.</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accuracy">Recognition quality</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accuracy.Sub">Fast: bundled lightweight model, works out of the box. Accurate: PP-OCRv5 server model with better Chinese accuracy; one-time download (~165 MB), fully offline afterwards.</sys:String>
+    <sys:String x:Key="Settings.Ocr.Fast">Fast (bundled)</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accurate">Accurate (download)</sys:String>
+    <sys:String x:Key="Settings.Ocr.Model">Accurate model</sys:String>
+    <sys:String x:Key="Settings.Ocr.Installed">Installed and ready for offline use.</sys:String>
+    <sys:String x:Key="Settings.Ocr.NotInstalled">Not installed; download it before choosing "Accurate" — until then the fast model is used.</sys:String>
+    <sys:String x:Key="Settings.Ocr.Download">Download models</sys:String>
+    <sys:String x:Key="Settings.Ocr.Downloading">Downloading {0:0}%</sys:String>
+    <sys:String x:Key="Settings.Ocr.DownloadFailed">Download failed: {0}</sys:String>
+    <sys:String x:Key="Settings.Ocr.AutoCopy">Copy text after recognition</sys:String>
+    <sys:String x:Key="Settings.Ocr.AutoCopy.Sub">Put the recognized text on the clipboard as soon as it is ready.</sys:String>
 
     <!-- History -->
     <sys:String x:Key="History.Title">History</sys:String>
@@ -201,6 +255,7 @@
     <sys:String x:Key="History.ClearAll">Clear all</sys:String>
     <sys:String x:Key="History.ConfirmClear">Delete all history items? This can't be undone.</sys:String>
     <sys:String x:Key="History.Count">{0} items</sys:String>
+    <sys:String x:Key="History.OpenFailed">Could not open this history item: {0}</sys:String>
 
     <!-- Overlay -->
     <sys:String x:Key="Overlay.Hint">Drag to select · Click a window to capture it · Esc to cancel</sys:String>
@@ -208,6 +263,30 @@
     <sys:String x:Key="Overlay.Size">{0} × {1}</sys:String>
     <sys:String x:Key="Overlay.Position">X {0}  Y {1}</sys:String>
     <sys:String x:Key="Overlay.CopyColorHint">C: copy color</sys:String>
+    <sys:String x:Key="Overlay.HelpTitle">Shortcuts</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyDrag">Drag</sys:String>
+    <sys:String x:Key="Overlay.HelpDrag">Select a region</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyDoubleClick">Double-click</sys:String>
+    <sys:String x:Key="Overlay.HelpConfirm">Confirm the capture</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyClick">Click</sys:String>
+    <sys:String x:Key="Overlay.HelpPickWindow">Capture the highlighted window</sys:String>
+    <sys:String x:Key="Overlay.HelpCancel">Cancel the capture</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyArrows">↑↓←→</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyArrowsShift">Shift+↑↓←→</sys:String>
+    <sys:String x:Key="Overlay.HelpNudge">Nudge the selection 1 px / 10 px (after selecting)</sys:String>
+    <sys:String x:Key="Overlay.HelpFullMonitor">Set the selection to the whole screen</sys:String>
+    <sys:String x:Key="Overlay.HelpLastRegion">Reuse the last capture's region</sys:String>
+    <sys:String x:Key="Overlay.HelpMoveCursor">Move the pointer 1 px (while selecting / dragging)</sys:String>
+    <sys:String x:Key="Overlay.HelpToggleDetect">Toggle window / element detection</sys:String>
+    <sys:String x:Key="Overlay.HelpElementLevel">Pick the parent / child element</sys:String>
+    <sys:String x:Key="Overlay.HelpRefresh">Re-capture the screen</sys:String>
+    <sys:String x:Key="Overlay.HelpCursorToggle">Show / hide the mouse pointer</sys:String>
+    <sys:String x:Key="Overlay.HelpCopyColor">Copy the color under the pointer</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">Annotation tools (inside a selection): V select · R rectangle · E ellipse · L line · A arrow · P pen · H highlighter · T text · N step · M mosaic · X eraser</sys:String>
+    <sys:String x:Key="Overlay.HelpClose">F1 to show / hide · click anywhere to close</sys:String>
+    <sys:String x:Key="Overlay.ElementDetectionElements">Detecting UI elements</sys:String>
+    <sys:String x:Key="Overlay.ElementDetectionWindows">Detecting windows</sys:String>
+    <sys:String x:Key="Overlay.LastRegionOutside">The last region is not on this screen</sys:String>
 
     <!-- Scrolling -->
     <sys:String x:Key="Scroll.Stop">Stop</sys:String>
@@ -224,6 +303,8 @@
     <sys:String x:Key="Editor.Title">Editor - Modern ScreenShot</sys:String>
     <sys:String x:Key="Editor.Zoom">Zoom</sys:String>
     <sys:String x:Key="Editor.Fit">Fit to window</sys:String>
+    <sys:String x:Key="Editor.ZoomIn">Zoom in</sys:String>
+    <sys:String x:Key="Editor.ZoomOut">Zoom out</sys:String>
     <sys:String x:Key="Editor.ActualSize">Actual size</sys:String>
     <sys:String x:Key="Editor.Effects">Effects</sys:String>
     <sys:String x:Key="Editor.Properties">Properties</sys:String>
@@ -233,9 +314,71 @@
     <sys:String x:Key="Editor.CropHint">Drag to choose a crop area, then press Enter or double-click to apply. Esc cancels; press Esc again to remove an applied crop.</sys:String>
     <sys:String x:Key="Editor.EraserHint">Drag over an annotation to delete it.</sys:String>
 
+    <!-- OCR (text recognition) -->
+    <sys:String x:Key="Ocr.Title">Recognized text</sys:String>
+    <sys:String x:Key="Ocr.Running">Recognizing text…</sys:String>
+    <sys:String x:Key="Ocr.Done">Recognized · {0} line(s)</sys:String>
+    <sys:String x:Key="Ocr.Failed">Text recognition failed. See the log for details.</sys:String>
+    <sys:String x:Key="Ocr.Unavailable">OCR models are missing. Reinstall the app or restore the models folder.</sys:String>
+    <sys:String x:Key="Ocr.Empty">No text found</sys:String>
+    <sys:String x:Key="Ocr.Status">{0} line(s) · {1:0.00} s · {2}</sys:String>
+    <sys:String x:Key="Ocr.ModelFast">fast model</sys:String>
+    <sys:String x:Key="Ocr.ModelAccurate">accurate model</sys:String>
+    <sys:String x:Key="Ocr.FallbackFast">accurate model not installed; used the fast model</sys:String>
+
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>
     <sys:String x:Key="FirstRun.Body">Press Ctrl+Shift+A to capture a region. Right-click the tray icon for more modes.</sys:String>
+
+    <!-- OOBE / welcome -->
+    <sys:String x:Key="Oobe.Welcome">Welcome</sys:String>
+    <sys:String x:Key="Oobe.Tagline">A modern, fast way to capture, annotate and share your screen.</sys:String>
+    <sys:String x:Key="Oobe.TipRegion">Press Ctrl+Shift+A to capture any region of your screen.</sys:String>
+    <sys:String x:Key="Oobe.TipTray">The app lives in the tray — right-click its icon for every capture mode.</sys:String>
+    <sys:String x:Key="Oobe.TipEditor">Annotate, add effects and pin captures right after you take them.</sys:String>
+    <sys:String x:Key="Oobe.Skip">Skip</sys:String>
+    <sys:String x:Key="Oobe.GetStarted">Get started</sys:String>
+    <sys:String x:Key="Oobe.ConfigTitle">Quick setup</sys:String>
+    <sys:String x:Key="Oobe.ConfigSub">You can change all of this later in Settings.</sys:String>
+    <sys:String x:Key="Oobe.LangLabel">Language</sys:String>
+    <sys:String x:Key="Oobe.ThemeLabel">Theme</sys:String>
+    <sys:String x:Key="Oobe.AfterLabel">After capture</sys:String>
+    <sys:String x:Key="Oobe.Done">Done</sys:String>
+    <sys:String x:Key="Settings.ResetOobe">Show welcome screen again</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Sub">Replays the first-run welcome animation the next time the app starts.</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Button">Reset</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Done">The welcome screen will play again next time you start Modern ScreenShot.</sys:String>
+
+    <!-- Hidden debug category (unlocked by clicking About 5 times) -->
+    <sys:String x:Key="Settings.Debug">Debug</sys:String>
+    <sys:String x:Key="Settings.Debug.Sub">Developer tools. This category is hidden by default.</sys:String>
+    <sys:String x:Key="Settings.Debug.Unlocked">Debug tools unlocked.</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe">Preview welcome animation</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe.Sub">Opens the first-run welcome screen and plays its entrance animation without changing your first-run state.</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe.Button">Play preview</sys:String>
+
+    <!-- Pin window (Snipaste-style) -->
+    <sys:String x:Key="Pin.CopyImage">Copy image</sys:String>
+    <sys:String x:Key="Pin.SaveAs">Save image as...</sys:String>
+    <sys:String x:Key="Pin.Shadow">Window shadow</sys:String>
+    <sys:String x:Key="Pin.Zoom">Zoom</sys:String>
+    <sys:String x:Key="Pin.ZoomIn">Zoom in</sys:String>
+    <sys:String x:Key="Pin.ZoomOut">Zoom out</sys:String>
+    <sys:String x:Key="Pin.Zoom100">Reset</sys:String>
+    <sys:String x:Key="Pin.ZoomFit">Fit to screen</sys:String>
+    <sys:String x:Key="Pin.Background">Background mode</sys:String>
+    <sys:String x:Key="Pin.BgOriginal">Original</sys:String>
+    <sys:String x:Key="Pin.BgWhite">White</sys:String>
+    <sys:String x:Key="Pin.BgGray">Gray</sys:String>
+    <sys:String x:Key="Pin.BgBlack">Black</sys:String>
+    <sys:String x:Key="Pin.ImageOps">Image processing</sys:String>
+    <sys:String x:Key="Pin.Rotate">Rotate 90°</sys:String>
+    <sys:String x:Key="Pin.FlipH">Flip horizontally</sys:String>
+    <sys:String x:Key="Pin.Reset">Reset</sys:String>
+    <sys:String x:Key="Pin.Paste">Paste</sys:String>
+    <sys:String x:Key="Pin.ReplaceFile">Replace with file...</sys:String>
+    <sys:String x:Key="Pin.CopySize">Copy size</sys:String>
+    <sys:String x:Key="Pin.PasteEmpty">No image in the clipboard.</sys:String>
 
     <!-- Common -->
     <sys:String x:Key="Common.Yes">Yes</sys:String>

@@ -1,224 +1,557 @@
 <Window x:Class="ModernScreenShot.App.Settings.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:controls="clr-namespace:ModernScreenShot.App.Controls"
         Title="{DynamicResource Settings.Title}"
-        Width="640" Height="660"
-        MinWidth="580" MinHeight="560"
+        Width="880" Height="640"
+        MinWidth="760" MinHeight="520"
         Background="{DynamicResource ApplicationBackgroundBrush}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
-        <Style x:Key="FormLabel" TargetType="TextBlock">
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="0,8,20,8"/>
+
+        <!-- Section header inside a content page -->
+        <Style x:Key="PageTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
         </Style>
-        <Style x:Key="FormField" TargetType="Control">
-            <Setter Property="Margin" Value="0,4,0,4"/>
+        <!-- Small group caption above a stack of cards -->
+        <Style x:Key="GroupCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,18,0,6"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <!-- Primary line inside a settings row -->
+        <Style x:Key="RowTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+        </Style>
+        <!-- Explanatory subtitle under a row title -->
+        <Style x:Key="RowSubtitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,0"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}"/>
+        </Style>
+
+        <!-- One card row: title + subtitle on the left, a control on the right. BasedOn the implicit
+             WPF-UI style is REQUIRED for a keyed style: a standalone style would replace the themed
+             template (card chrome and the whole Header presenter vanish — the old Button-subclass
+             trap; that is also why the hotkey rows use plain Buttons in code). -->
+        <Style x:Key="Card" TargetType="ui:CardControl" BasedOn="{StaticResource {x:Type ui:CardControl}}">
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Padding" Value="16,12"/>
+        </Style>
+
+        <!-- Left-rail navigation item: icon glyph + label, selectable pill. -->
+        <Style x:Key="NavItem" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="6,2"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Pill" CornerRadius="6" Background="Transparent" Padding="10,9">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="Bar" Grid.Column="0" Width="3" CornerRadius="1.5"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        HorizontalAlignment="Left" Height="16" Opacity="0"
+                                        RenderTransformOrigin="0.5,1"/>
+                                <ContentPresenter Grid.Column="1" Grid.ColumnSpan="2"
+                                                  VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Pill" Property="Background"
+                                        Value="{DynamicResource SubtleFillColorSecondaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Pill" Property="Background"
+                                        Value="{DynamicResource SubtleFillColorTertiaryBrush}"/>
+                                <Setter TargetName="Bar" Property="Opacity" Value="1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
-    <DockPanel>
-        <Border DockPanel.Dock="Bottom" Padding="12,10"
-                BorderBrush="#22000000" BorderThickness="0,1,0,0">
-            <Button Content="{DynamicResource Action.Ok}" MinWidth="120"
-                    HorizontalAlignment="Right" Click="OnOk"/>
+    <!-- Custom title bar row; the two-column layout below is the unchanged content area. -->
+    <DockPanel LastChildFill="True">
+        <controls:AppTitleBar DockPanel.Dock="Top" Text="{DynamicResource Settings.Title}"
+                              ShowMin="True" ShowMax="True" ShowClose="True"/>
+        <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="216"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ================= Left navigation rail ================= -->
+        <Border Grid.Column="0" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{DynamicResource Settings.Title}"
+                           FontSize="16" FontWeight="SemiBold" Margin="18,18,18,10"
+                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"/>
+                <ListBox x:Name="NavList" DockPanel.Dock="Top" BorderThickness="0"
+                         Background="Transparent" SelectedIndex="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         SelectionChanged="OnNavSelectionChanged"
+                         ItemContainerStyle="{StaticResource NavItem}">
+                    <ListBoxItem>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Settings24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.General}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Keyboard24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.Hotkeys}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Crop24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.Capture}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Save24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.Output}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Sparkle24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.Effects}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <ListBoxItem x:Name="NavAboutItem"
+                                 PreviewMouseLeftButtonDown="OnAboutNavClicked">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Info24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.About}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                    <!-- Hidden "easter-egg" debug category: revealed after 5 clicks on the About item. -->
+                    <ListBoxItem x:Name="NavDebugItem" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Bug24" FontSize="18" VerticalAlignment="Center"/>
+                            <TextBlock Text="{DynamicResource Settings.Debug}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ListBoxItem>
+                </ListBox>
+            </DockPanel>
         </Border>
 
-        <TabControl Margin="8">
+        <!-- ================= Right content area ================= -->
+        <DockPanel Grid.Column="1">
+            <Border DockPanel.Dock="Bottom" Padding="24,12"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                <ui:Button Content="{DynamicResource Action.Ok}" MinWidth="120"
+                           Appearance="Primary" HorizontalAlignment="Right" Click="OnOk"/>
+            </Border>
 
-            <!-- General -->
-            <TabItem Header="{DynamicResource Settings.General}">
-                <Grid Margin="24,16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
-                               Text="{DynamicResource Settings.Language}"/>
-                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LanguageBox" Width="220"
-                              HorizontalAlignment="Left" Margin="0,4,0,4"
-                              SelectionChanged="OnLanguageSelectionChanged">
-                        <ComboBoxItem Content="{DynamicResource Settings.LangSystem}"/>
-                        <ComboBoxItem Content="{DynamicResource Tray.LangChinese}"/>
-                        <ComboBoxItem Content="{DynamicResource Tray.LangEnglish}"/>
-                    </ComboBox>
-                    <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"
-                               Text="{DynamicResource Settings.Theme}"/>
-                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ThemeBox" Width="220"
-                              HorizontalAlignment="Left" Margin="0,4,0,4"
-                              SelectionChanged="OnThemeSelectionChanged">
-                        <ComboBoxItem Content="{DynamicResource Settings.ThemeSystem}"/>
-                        <ComboBoxItem Content="{DynamicResource Settings.ThemeLight}"/>
-                        <ComboBoxItem Content="{DynamicResource Settings.ThemeDark}"/>
-                    </ComboBox>
-                    <CheckBox Grid.Row="2" Grid.Column="1" x:Name="StartWithWindowsBox"
-                              Margin="0,8,0,4" Content="{DynamicResource Settings.StartWithWindows}"
-                              Checked="OnStartWithWindowsChanged" Unchecked="OnStartWithWindowsChanged"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20,24,8">
+                <Grid x:Name="Pages">
+
+                    <!-- ===== General ===== -->
+                    <StackPanel x:Name="PageGeneral">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.General}"/>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Appearance}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Language}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="LanguageBox" Width="220" SelectionChanged="OnLanguageSelectionChanged">
+                                <ComboBoxItem Content="{DynamicResource Settings.LangSystem}"/>
+                                <ComboBoxItem Content="{DynamicResource Tray.LangChinese}"/>
+                                <ComboBoxItem Content="{DynamicResource Tray.LangEnglish}"/>
+                            </ComboBox>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Theme}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="ThemeBox" Width="220" SelectionChanged="OnThemeSelectionChanged">
+                                <ComboBoxItem Content="{DynamicResource Settings.ThemeSystem}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.ThemeLight}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.ThemeDark}"/>
+                            </ComboBox>
+                        </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Startup}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.StartWithWindows}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.StartWithWindows.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="StartWithWindowsBox"
+                                             Checked="OnStartWithWindowsChanged" Unchecked="OnStartWithWindowsChanged"/>
+                        </ui:CardControl>
+                    </StackPanel>
+
+                    <!-- ===== Hotkeys ===== -->
+                    <StackPanel x:Name="PageHotkeys" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.Hotkeys}"/>
+                        <TextBlock Style="{StaticResource RowSubtitle}" Margin="0,0,0,8"
+                                   Text="{DynamicResource Settings.HotkeyHint}"/>
+                        <Border CornerRadius="8" Padding="8,4"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                            <StackPanel x:Name="HotkeyPanel"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ===== Capture ===== -->
+                    <StackPanel x:Name="PageCapture" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.Capture}"/>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Selection}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.DelaySeconds}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.DelaySeconds.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:NumberBox x:Name="DelayBox" Width="130" Minimum="1" Maximum="60"
+                                          SpinButtonPlacementMode="Inline" ClearButtonEnabled="False"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.AutoElementDetection}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.AutoElementDetection.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="AutoDetectBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.ShowMagnifier}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.ShowMagnifier.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="ShowMagnifierBox"/>
+                        </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.WindowCapture}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.CaptureCursor}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.CaptureCursor.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="CaptureCursorBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.TransparentCorners}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.TransparentCorners.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="TransparentCornersBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.MacShadow}"/>
+                                    <TextBlock x:Name="MacShadowHint" Style="{StaticResource RowSubtitle}"
+                                               Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                                               Visibility="Collapsed"
+                                               Text="{DynamicResource Settings.MacShadowFormatHint}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="MacShadowBox"
+                                             Checked="OnMacShadowChanged" Unchecked="OnMacShadowChanged"/>
+                        </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Advanced}"/>
+                        <!-- Capture priority: elevated -> a real toggle; normal -> a relaunch button.
+                             Exactly one is shown, chosen in LoadCaptureTab from the elevation state. -->
+                        <ui:CardControl x:Name="CapturePriorityCard" Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.CapturePriority}"/>
+                                    <TextBlock x:Name="CapturePriorityHint" Style="{StaticResource RowSubtitle}"
+                                               Text="{DynamicResource Settings.CapturePriorityHint}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <Grid>
+                                <ui:ToggleSwitch x:Name="CapturePriorityBox" Visibility="Collapsed"
+                                                 Checked="OnCapturePriorityChanged" Unchecked="OnCapturePriorityChanged"/>
+                                <ui:Button x:Name="RunAsAdminButton" Visibility="Collapsed"
+                                           Icon="{ui:SymbolIcon ShieldTask24}"
+                                           Content="{DynamicResource Settings.RunAsAdmin}"
+                                           Click="OnRunAsAdminClick"/>
+                            </Grid>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.HistoryMax}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.HistoryMax.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:NumberBox x:Name="HistoryMaxBox" Width="130" Minimum="0" Maximum="5000"
+                                          SpinButtonPlacementMode="Inline" ClearButtonEnabled="False"/>
+                        </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Ocr}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Ocr.Accuracy}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Ocr.Accuracy.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="OcrAccuracyBox" Width="220" SelectionChanged="OnOcrAccuracyChanged">
+                                <ComboBoxItem Content="{DynamicResource Settings.Ocr.Fast}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.Ocr.Accurate}"/>
+                            </ComboBox>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Ocr.Model}"/>
+                                    <TextBlock x:Name="OcrModelStatus" Style="{StaticResource RowSubtitle}"
+                                               Text="{DynamicResource Settings.Ocr.NotInstalled}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:Button x:Name="OcrDownloadButton" Content="{DynamicResource Settings.Ocr.Download}"
+                                       Icon="{ui:SymbolIcon ArrowDownload24}" Click="OnDownloadOcrModels"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Ocr.AutoCopy}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Ocr.AutoCopy.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="OcrAutoCopyBox"/>
+                        </ui:CardControl>
+                    </StackPanel>
+
+                    <!-- ===== Output ===== -->
+                    <StackPanel x:Name="PageOutput" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.Output}"/>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.File}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.SaveDir}"/>
+                                    <TextBlock x:Name="SaveDirHint" Style="{StaticResource RowSubtitle}" Visibility="Collapsed"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:TextBox x:Name="SaveDirBox" Width="280" VerticalContentAlignment="Center"
+                                            PlaceholderText="{DynamicResource Settings.SaveDirPlaceholder}"/>
+                                <ui:Button Content="{DynamicResource Settings.Browse}" Margin="8,0,0,0"
+                                           Icon="{ui:SymbolIcon FolderOpen24}" Click="OnBrowseSaveDir"/>
+                            </StackPanel>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Format}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="FormatBox" Width="160" SelectionChanged="OnFormatChanged">
+                                <ComboBoxItem Content="PNG"/>
+                                <ComboBoxItem Content="JPG"/>
+                                <ComboBoxItem Content="WebP"/>
+                            </ComboBox>
+                        </ui:CardControl>
+                        <ui:CardControl x:Name="JpgQualityCard" Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.JpgQuality}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <StackPanel Orientation="Horizontal" Width="240">
+                                <Slider x:Name="JpgQualitySlider" Width="190" Minimum="1" Maximum="100"
+                                        VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"
+                                        ValueChanged="OnQualityChanged"/>
+                                <TextBlock x:Name="JpgQualityValue" Width="40" TextAlignment="Right"
+                                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+                            </StackPanel>
+                        </ui:CardControl>
+                        <ui:CardControl x:Name="WebPQualityCard" Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.WebPQuality}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <StackPanel Orientation="Horizontal" Width="240">
+                                <Slider x:Name="WebPQualitySlider" Width="190" Minimum="1" Maximum="100"
+                                        VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"
+                                        ValueChanged="OnQualityChanged"/>
+                                <TextBlock x:Name="WebPQualityValue" Width="40" TextAlignment="Right"
+                                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+                            </StackPanel>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.FileTemplate}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.TemplateHelp}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:TextBox x:Name="TemplateBox" Width="280" VerticalContentAlignment="Center"/>
+                        </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Automation}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.AutoSave}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.AutoSave.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="AutoSaveBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.AutoCopy}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.AutoCopy.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="AutoCopyBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.AfterRegion}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.AfterRegion.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="AfterRegionBox" Width="220">
+                                <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Ocr}"/>
+                            </ComboBox>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.AfterOther}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.AfterOther.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="AfterOtherBox" Width="220">
+                                <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Ocr}"/>
+                            </ComboBox>
+                        </ui:CardControl>
+                    </StackPanel>
+
+                    <!-- ===== Effects ===== -->
+                    <StackPanel x:Name="PageEffects" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.Effects}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Effects.Enabled}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.ApplyEffects.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="ApplyEffectsBox"/>
+                        </ui:CardControl>
+                    </StackPanel>
+
+                    <!-- ===== About ===== -->
+                    <StackPanel x:Name="PageAbout" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.About}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock x:Name="VersionText" Style="{StaticResource RowTitle}" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="SettingsPathText" Style="{StaticResource RowSubtitle}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:Button Content="{DynamicResource Settings.OpenLog}"
+                                       Icon="{ui:SymbolIcon DocumentBulletList24}" Click="OnOpenLog"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.ResetOobe}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.ResetOobe.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:Button x:Name="ResetOobeButton" Content="{DynamicResource Settings.ResetOobe.Button}"
+                                       Icon="{ui:SymbolIcon ArrowReset24}" Click="OnResetOobeClick"/>
+                        </ui:CardControl>
+                    </StackPanel>
+
+                    <!-- ===== Debug (hidden easter egg) ===== -->
+                    <StackPanel x:Name="PageDebug" Visibility="Collapsed">
+                        <TextBlock Style="{StaticResource PageTitle}" Text="{DynamicResource Settings.Debug}"/>
+                        <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Debug.Sub}"
+                                   Margin="0,0,0,12"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Debug.PreviewOobe}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Debug.PreviewOobe.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:Button x:Name="PreviewOobeButton" Content="{DynamicResource Settings.Debug.PreviewOobe.Button}"
+                                       Appearance="Primary" Icon="{ui:SymbolIcon Play24}" Click="OnPreviewOobeClick"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.ResetOobe}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.ResetOobe.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:Button Content="{DynamicResource Settings.ResetOobe.Button}"
+                                       Icon="{ui:SymbolIcon ArrowReset24}" Click="OnResetOobeClick"/>
+                        </ui:CardControl>
+                    </StackPanel>
+
                 </Grid>
-            </TabItem>
-
-            <!-- Hotkeys -->
-            <TabItem Header="{DynamicResource Settings.Hotkeys}">
-                <DockPanel Margin="24,12">
-                    <TextBlock DockPanel.Dock="Bottom" Margin="0,10,0,0" TextWrapping="Wrap"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{DynamicResource Settings.HotkeyHint}"/>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="HotkeyPanel" Margin="0,4"/>
-                    </ScrollViewer>
-                </DockPanel>
-            </TabItem>
-
-            <!-- Capture -->
-            <TabItem Header="{DynamicResource Settings.Capture}">
-                <Grid Margin="24,16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
-                               Text="{DynamicResource Settings.DelaySeconds}"/>
-                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="DelayBox" Width="80"
-                             HorizontalAlignment="Left" Margin="0,4,0,4"/>
-                    <CheckBox Grid.Row="1" Grid.Column="1" x:Name="ShowMagnifierBox" Margin="0,8,0,4"
-                              Content="{DynamicResource Settings.ShowMagnifier}"/>
-                    <CheckBox Grid.Row="2" Grid.Column="1" x:Name="CaptureCursorBox" Margin="0,8,0,4"
-                              Content="{DynamicResource Settings.CaptureCursor}"/>
-                    <CheckBox Grid.Row="3" Grid.Column="1" x:Name="TransparentCornersBox" Margin="0,8,0,4"
-                              Content="{DynamicResource Settings.TransparentCorners}"/>
-                    <CheckBox Grid.Row="4" Grid.Column="1" x:Name="MacShadowBox" Margin="0,8,0,4"
-                              Content="{DynamicResource Settings.MacShadow}"
-                              Checked="OnMacShadowChanged" Unchecked="OnMacShadowChanged"/>
-                    <TextBlock Grid.Row="5" Grid.Column="0" Style="{StaticResource FormLabel}"
-                               Text="{DynamicResource Settings.HistoryMax}"/>
-                    <TextBox Grid.Row="5" Grid.Column="1" x:Name="HistoryMaxBox" Width="80"
-                             HorizontalAlignment="Left" Margin="0,4,0,4"/>
-                </Grid>
-            </TabItem>
-
-            <!-- Output -->
-            <TabItem Header="{DynamicResource Settings.Output}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <Grid Margin="24,16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.SaveDir}"/>
-                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,4,0,4">
-                            <DockPanel>
-                                <Button DockPanel.Dock="Right" Content="{DynamicResource Settings.Browse}"
-                                        MinWidth="80" Margin="8,0,0,0" Click="OnBrowseSaveDir"/>
-                                <TextBox x:Name="SaveDirBox" VerticalContentAlignment="Center"/>
-                            </DockPanel>
-                            <TextBlock x:Name="SaveDirHint" FontSize="11"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
-                        </StackPanel>
-                        <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.Format}"/>
-                        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FormatBox" Width="160"
-                                  HorizontalAlignment="Left" Margin="0,4,0,4">
-                            <ComboBoxItem Content="PNG"/>
-                            <ComboBoxItem Content="JPG"/>
-                            <ComboBoxItem Content="WebP"/>
-                        </ComboBox>
-                        <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.JpgQuality}"/>
-                        <DockPanel Grid.Row="2" Grid.Column="1" VerticalAlignment="Center" Margin="0,4,0,4">
-                            <TextBlock DockPanel.Dock="Right" x:Name="JpgQualityValue" Width="32"
-                                       TextAlignment="Right" VerticalAlignment="Center"/>
-                            <Slider x:Name="JpgQualitySlider" Minimum="1" Maximum="100"
-                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                    ValueChanged="OnQualityChanged"/>
-                        </DockPanel>
-                        <TextBlock Grid.Row="3" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.WebPQuality}"/>
-                        <DockPanel Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="0,4,0,4">
-                            <TextBlock DockPanel.Dock="Right" x:Name="WebPQualityValue" Width="32"
-                                       TextAlignment="Right" VerticalAlignment="Center"/>
-                            <Slider x:Name="WebPQualitySlider" Minimum="1" Maximum="100"
-                                    IsSnapToTickEnabled="True" TickFrequency="1"
-                                    ValueChanged="OnQualityChanged"/>
-                        </DockPanel>
-                        <TextBlock Grid.Row="4" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.FileTemplate}"/>
-                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="TemplateBox" Margin="0,4,0,4"
-                                 VerticalContentAlignment="Center"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,0,0,8" TextWrapping="Wrap"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="{DynamicResource Settings.TemplateHelp}"/>
-                        <CheckBox Grid.Row="6" Grid.Column="1" x:Name="AutoSaveBox" Margin="0,4,0,8"
-                                  Content="{DynamicResource Settings.AutoSave}"/>
-                        <CheckBox Grid.Row="7" Grid.Column="1" x:Name="AutoCopyBox" Margin="0,4,0,8"
-                                  Content="{DynamicResource Settings.AutoCopy}"/>
-                        <TextBlock Grid.Row="8" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.AfterRegion}"/>
-                        <ComboBox Grid.Row="8" Grid.Column="1" x:Name="AfterRegionBox" Width="220"
-                                  HorizontalAlignment="Left" Margin="0,4,0,4">
-                            <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
-                        </ComboBox>
-                        <TextBlock Grid.Row="9" Grid.Column="0" Style="{StaticResource FormLabel}"
-                                   Text="{DynamicResource Settings.AfterOther}"/>
-                        <ComboBox Grid.Row="9" Grid.Column="1" x:Name="AfterOtherBox" Width="220"
-                                  HorizontalAlignment="Left" Margin="0,4,0,4">
-                            <ComboBoxItem Content="{DynamicResource Settings.After.ShowToolbar}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.OpenEditor}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.CopyOnly}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.SaveOnly}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
-                            <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
-                        </ComboBox>
-                    </Grid>
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- Effects -->
-            <TabItem Header="{DynamicResource Settings.Effects}">
-                <StackPanel Margin="24,16">
-                    <CheckBox x:Name="ApplyEffectsBox" Content="{DynamicResource Effects.Enabled}"/>
-                </StackPanel>
-            </TabItem>
-
-            <!-- About -->
-            <TabItem Header="{DynamicResource Settings.About}">
-                <StackPanel Margin="24,16">
-                    <TextBlock x:Name="VersionText" FontWeight="SemiBold" Margin="0,4"/>
-                    <TextBlock x:Name="SettingsPathText" Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" Margin="0,4"/>
-                    <Button Content="{DynamicResource Settings.OpenLog}" MinWidth="140"
-                            HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnOpenLog"/>
-                </StackPanel>
-            </TabItem>
-
-        </TabControl>
+            </ScrollViewer>
+        </DockPanel>
+        </Grid>
     </DockPanel>
 </Window>

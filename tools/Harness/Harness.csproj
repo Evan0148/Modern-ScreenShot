@@ -11,6 +11,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ModernScreenShot.Core\ModernScreenShot.Core.csproj" />
+    <!-- Direct reference so the RapidOcrNet .targets (which copies models/v5 next to the binary)
+         runs for the harness output as well; build targets are not transitive. -->
+    <PackageReference Include="RapidOcrNet" Version="4.2.0" />
   </ItemGroup>
 
 </Project>

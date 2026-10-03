@@ -74,9 +74,13 @@ public static class BuiltInPresets
     };
 
     /// <summary>
-    /// macOS-style window shot: pure black, heavily diffused, low-opacity shadow with a slight
+    /// macOS-style window shot: pure black, soft, clearly visible drop shadow with a slight
     /// downward offset — the ⌘⇧4 space-click look. Not part of All(): it is a capture-time style,
-    /// not a user-facing editor preset.
+    /// not a user-facing editor preset. Tuning notes: the shadow margin that RenderShadowOnly adds
+    /// (ceil(blur*1.5)+2 per side) already guarantees the falloff never clips, so Frame.Padding
+    /// stays 0 — extra padding only grows the transparent surround into a "window on a card" look.
+    /// With blur 38 the box ≈ gaussian σ≈19, so the contact edge sits near opacity*50% and fades
+    /// to nothing within ~60px: opacity must stay high enough to read on dark backgrounds.
     /// </summary>
     public static EffectSettings MacShadow() => new()
     {
@@ -84,18 +88,18 @@ public static class BuiltInPresets
         Shadow = new ShadowOptions
         {
             Enabled = true,
-            BlurRadius = 52,        // three-pass box ≈ gaussian σ≈26: wide, borderless falloff
+            BlurRadius = 38,        // three-pass box ≈ gaussian σ≈19: soft, slightly wide mac falloff
             Spread = 0,             // no dilation: dilation creates the flat "thick stroke" look
             Color = "#FF000000",    // pure black — no blue/purple tint
             Angle = 90,             // light from straight above
             Distance = 14,          // subtle downward offset
-            Opacity = 0.20,         // ~10-25% band
+            Opacity = 0.40,         // ~20% at the contact edge, 40% right under the bottom edge
         },
         Reflection = new ReflectionOptions { Enabled = false },
         Frame = new FrameOptions
         {
             CornerRadius = 8,       // hugs the Win11 window corner radius
-            Padding = 56,           // comfortably exceeds blur extent + distance so the falloff never clips
+            Padding = 0,            // shadow margins are the surround — do not add more
             Background = BackgroundKind.None,
         },
     };

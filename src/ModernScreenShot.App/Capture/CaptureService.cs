@@ -29,39 +29,33 @@ public sealed class CaptureService
     }
 
     /// <summary>
-    /// Runs a capture on the calling (UI) thread. Returns null when the user cancels or when the
-    /// mode is not available yet (scrolling capture arrives with T9). DelayRegion shows the
-    /// countdown bubble first and continues as a region capture when it is not cancelled.
+    /// Runs a capture on the calling (UI) thread. Returns null when the user cancels. A hard
+    /// pipeline failure (GDI/BitBlt/monitor errors) throws so the single caller (RunCaptureCore)
+    /// can tell it apart from a cancel and surface the failure toast — swallowing it here made
+    /// real failures indistinguishable from the user pressing Esc. DelayRegion shows the countdown
+    /// bubble first and continues as a region capture when it is not cancelled.
     /// </summary>
     public CaptureResult? Capture(CaptureMode mode)
     {
-        try
+        if (mode == CaptureMode.DelayRegion)
         {
-            if (mode == CaptureMode.DelayRegion)
+            if (!CountdownWindow.Run(_settings.Current.Capture.DelaySeconds, _monitors))
             {
-                if (!CountdownWindow.Run(_settings.Current.Capture.DelaySeconds, _monitors))
-                {
-                    Log.Info("Delayed capture cancelled during the countdown.");
-                    return null;
-                }
-                mode = CaptureMode.Region;
+                Log.Info("Delayed capture cancelled during the countdown.");
+                return null;
             }
-            return mode switch
-            {
-                CaptureMode.Region or CaptureMode.WindowPick => CaptureViaOverlay(mode),
-                CaptureMode.Fullscreen => CaptureScreen(_monitors.GetCursorMonitor().Bounds, CaptureMode.Fullscreen),
-                CaptureMode.AllMonitors => CaptureScreen(_monitors.GetVirtualScreen(), CaptureMode.AllMonitors),
-                CaptureMode.ActiveWindow => CaptureActiveWindow(),
-                CaptureMode.LastRegion => CaptureLastRegion(),
-                CaptureMode.Scrolling => CaptureScrolling(),
-                _ => null,
-            };
+            mode = CaptureMode.Region;
         }
-        catch (Exception ex)
+        return mode switch
         {
-            Log.Error($"Capture mode {mode} failed", ex);
-            return null;
-        }
+            CaptureMode.Region or CaptureMode.WindowPick => CaptureViaOverlay(mode),
+            CaptureMode.Fullscreen => CaptureScreen(_monitors.GetCursorMonitor().Bounds, CaptureMode.Fullscreen),
+            CaptureMode.AllMonitors => CaptureScreen(_monitors.GetVirtualScreen(), CaptureMode.AllMonitors),
+            CaptureMode.ActiveWindow => CaptureActiveWindow(),
+            CaptureMode.LastRegion => CaptureLastRegion(),
+            CaptureMode.Scrolling => CaptureScrolling(),
+            _ => null,
+        };
     }
 
     private CaptureResult? CaptureViaOverlay(CaptureMode mode)
@@ -74,7 +68,11 @@ public sealed class CaptureService
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(mode, frozen, vs, frozen.ToBitmapSource(), _monitors, _windows,
             _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor,
-            persistEditorOptions: () => _settings.Save());
+            persistEditorOptions: () => _settings.Save(),
+            autoElementDetection: _settings.Current.Capture.AutoElementDetection,
+            capturePriority: _settings.Current.Capture.CapturePriority && ElevationService.IsElevated,
+            refreshFrozen: toggleCursor => RefreshFrozenFrame(vs, toggleCursor),
+            lastRegion: GetLastRegion());
         session.Doc.Effects = _settings.Current.Effects.Clone();
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed)
@@ -181,7 +179,7 @@ public sealed class CaptureService
     }
 
     /// <summary>Shows the region overlay in auto-confirm mode: dragging a region (or clicking a
-    /// window) confirms immediately with Edit intent; the toolbar is hidden; Esc cancels.</summary>
+    /// window) confirms immediately with the Default intent; the toolbar is hidden; Esc cancels.</summary>
     private PixelRect? SelectScrollingRegion()
     {
         var vs = _monitors.GetVirtualScreen();
@@ -191,10 +189,35 @@ public sealed class CaptureService
         _windows.Refresh(); // snapshot before overlay windows exist
         var session = new OverlaySession(CaptureMode.Region, frozen, vs, frozen.ToBitmapSource(), _monitors,
             _windows, _settings.Current.Capture.ShowMagnifier, _settings.Current.Editor, autoConfirmOnSelect: true,
-            persistEditorOptions: () => _settings.Save());
+            persistEditorOptions: () => _settings.Save(),
+            autoElementDetection: _settings.Current.Capture.AutoElementDetection,
+            capturePriority: _settings.Current.Capture.CapturePriority && ElevationService.IsElevated,
+            refreshFrozen: toggleCursor => RefreshFrozenFrame(vs, toggleCursor),
+            lastRegion: GetLastRegion());
         var outcome = session.Show();
         if (outcome is null || !outcome.Confirmed || outcome.Region.IsEmpty) return null;
         return outcome.Region;
+    }
+
+    /// <summary>
+    /// Re-captures the overlay's frozen frame on demand (F5 honors the current cursor setting,
+    /// ` / ! flip it for that one refresh). Runs while the session has hidden every overlay window,
+    /// so the fresh frame can never contain the overlay UI.
+    /// </summary>
+    private PixelBuffer RefreshFrozenFrame(PixelRect virtualScreen, bool toggleCursor)
+    {
+        bool includeCursor = _settings.Current.Capture.CaptureCursor;
+        if (toggleCursor) includeCursor = !includeCursor;
+        return _screen.Capture(virtualScreen, includeCursor);
+    }
+
+    /// <summary>The persisted last region (virtual-screen physical px) for the overlay's Shift+R,
+    /// or null when none was stored. Only saved on a region confirm, so it is usually present.</summary>
+    private PixelRect? GetLastRegion()
+    {
+        if (_settings.Current.Capture.LastRegion is not { Length: 4 } last) return null;
+        var rect = new PixelRect(last[0], last[1], last[2], last[3]);
+        return rect.IsEmpty ? null : rect;
     }
 
     private CaptureResult CaptureScreen(PixelRect rect, CaptureMode mode)
@@ -226,8 +249,8 @@ public sealed class CaptureService
     }
 
     /// <summary>
-    /// When macOS-style window shadow is enabled, bakes the MacShadow preset (pure-black, heavily
-    /// diffused, low-opacity drop shadow over a transparent surround) into the returned image so the
+    /// When macOS-style window shadow is enabled, bakes the MacShadow preset (pure-black, tight,
+    /// clearly visible drop shadow over a transparent surround) into the returned image so the
     /// result is what-you-see-is-what-you-get in the editor canvas, pin, clipboard, saved files and
     /// history. The document's Effects are stored disabled with
     /// <see cref="AnnotationDocument.EffectsBaked"/> set, so exports never compose them again and the
@@ -307,12 +330,17 @@ public sealed class CaptureService
         return CaptureScreen(clipped, CaptureMode.LastRegion);
     }
 
-    private static AfterCaptureAction MapIntent(OverlayIntent intent) => intent switch
+    /// <summary>Maps a toolbar-chosen intent to its action. Default returns null so dispatch
+    /// falls back to the user's configured "action after capture" — Enter/double-click/click-snap
+    /// carry no explicit choice and must honor that setting.</summary>
+    private static AfterCaptureAction? MapIntent(OverlayIntent intent) => intent switch
     {
+        OverlayIntent.Default => null,
         OverlayIntent.Edit => AfterCaptureAction.OpenEditor,
         OverlayIntent.Copy => AfterCaptureAction.CopyOnly,
         OverlayIntent.Save => AfterCaptureAction.SaveOnly,
         OverlayIntent.Pin => AfterCaptureAction.Pin,
-        _ => AfterCaptureAction.CopyOnly,
+        OverlayIntent.Ocr => AfterCaptureAction.OcrText,
+        _ => null,
     };
 }

@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- App -->
@@ -45,6 +45,9 @@
     <sys:String x:Key="Action.Edit">编辑</sys:String>
     <sys:String x:Key="Action.Cancel">取消</sys:String>
     <sys:String x:Key="Action.Close">关闭</sys:String>
+    <sys:String x:Key="Action.Minimize">最小化</sys:String>
+    <sys:String x:Key="Action.Maximize">最大化</sys:String>
+    <sys:String x:Key="Action.Restore">还原</sys:String>
     <sys:String x:Key="Action.Delete">删除</sys:String>
     <sys:String x:Key="Action.OpenFolder">打开文件夹</sys:String>
     <sys:String x:Key="Action.Undo">撤销</sys:String>
@@ -57,6 +60,7 @@
     <sys:String x:Key="Action.SendToBack">置于底层</sys:String>
     <sys:String x:Key="Action.CopyColor">复制颜色</sys:String>
     <sys:String x:Key="Action.Stop">停止</sys:String>
+    <sys:String x:Key="Action.Ocr">文字识别</sys:String>
 
     <!-- Toast -->
     <sys:String x:Key="Toast.Copied">已复制到剪贴板</sys:String>
@@ -182,18 +186,68 @@
     <sys:String x:Key="Settings.After.SaveOnly">仅保存</sys:String>
     <sys:String x:Key="Settings.After.Pin">贴到屏幕</sys:String>
     <sys:String x:Key="Settings.After.Thumbnail">浮动缩略图</sys:String>
+    <sys:String x:Key="Settings.After.Ocr">文字识别</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">延时（秒）</sys:String>
-    <sys:String x:Key="Settings.ShowMagnifier">选区时显示放大镜</sys:String>
+    <sys:String x:Key="Settings.AutoElementDetection">自动识别元素并吸附</sys:String>
+    <sys:String x:Key="Settings.ShowMagnifier">显示放大镜</sys:String>
     <sys:String x:Key="Settings.CaptureCursor">截取鼠标指针</sys:String>
-    <sys:String x:Key="Settings.TransparentCorners">窗口截图保留透明圆角</sys:String>
-    <sys:String x:Key="Settings.MacShadow">窗口截图应用 Mac 风格阴影</sys:String>
+    <sys:String x:Key="Settings.TransparentCorners">保留透明圆角</sys:String>
+    <sys:String x:Key="Settings.MacShadow">Mac 风格窗口阴影</sys:String>
+    <sys:String x:Key="Settings.MacShadowFormatHint">仅 PNG/WebP 保留透明阴影，JPG 会用白色填充周围区域。</sys:String>
+    <sys:String x:Key="Settings.CapturePriority">截图高优先级（可截取置顶窗口）</sys:String>
+    <sys:String x:Key="Settings.CapturePriorityHint">截图选区层会被强制置于最顶层，从而盖住并截取始终置顶的窗口内容。</sys:String>
+    <sys:String x:Key="Settings.CapturePriorityHintNormal">要截取置顶窗口或提权程序上方的内容，需要以管理员身份运行。</sys:String>
+    <sys:String x:Key="Settings.RunAsAdmin">以管理员模式启动软件</sys:String>
+    <sys:String x:Key="Settings.RunAsAdminConfirm">Modern-ScreenShot 将以管理员权限重启，是否继续？</sys:String>
     <sys:String x:Key="Settings.HistoryMax">历史记录上限（条）</sys:String>
     <sys:String x:Key="Settings.PressKeys">请按下组合键…</sys:String>
-    <sys:String x:Key="Settings.HotkeyHint">点击按钮后按下组合键；按 Esc 清除该绑定，重复的键位会标红。</sys:String>
+    <sys:String x:Key="Settings.HotkeyHint">点击快捷键或铅笔图标进行修改；重复的键位会标红。</sys:String>
+    <sys:String x:Key="Settings.HotkeyConfigure">设置快捷键</sys:String>
+    <sys:String x:Key="Settings.HotkeyDialogHint">快捷键应以 Windows 键、Ctrl、Alt 或 Shift 开头。</sys:String>
+    <sys:String x:Key="Settings.HotkeyError">快捷键需要搭配 Ctrl、Alt、Shift 或 Win 修饰键使用。</sys:String>
+    <sys:String x:Key="Settings.HotkeyAltGr">使用 AltGr 的键盘布局可能与该组合冲突。</sys:String>
+    <sys:String x:Key="Settings.HotkeyConflictRow">该组合已分配给「{0}」，仍可保存。</sys:String>
+    <sys:String x:Key="Settings.HotkeyReset">重置</sys:String>
+    <sys:String x:Key="Settings.HotkeyClear">清除</sys:String>
+    <sys:String x:Key="Settings.HotkeyUnboundHint">保存后该动作将没有全局快捷键。</sys:String>
     <sys:String x:Key="Settings.Conflict">已被占用</sys:String>
     <sys:String x:Key="Settings.Version">版本 {0}</sys:String>
     <sys:String x:Key="Settings.SettingsPath">设置文件：{0}</sys:String>
     <sys:String x:Key="Settings.OpenLog">打开日志文件夹</sys:String>
+    <!-- Redesigned settings: group captions, row subtitles and placeholders -->
+    <sys:String x:Key="Settings.Group.Appearance">外观</sys:String>
+    <sys:String x:Key="Settings.Group.Startup">启动</sys:String>
+    <sys:String x:Key="Settings.Group.Selection">选区</sys:String>
+    <sys:String x:Key="Settings.Group.WindowCapture">窗口截图</sys:String>
+    <sys:String x:Key="Settings.Group.Advanced">高级</sys:String>
+    <sys:String x:Key="Settings.Group.File">文件</sys:String>
+    <sys:String x:Key="Settings.Group.Automation">自动化</sys:String>
+    <sys:String x:Key="Settings.Group.Ocr">文字识别（OCR）</sys:String>
+    <sys:String x:Key="Settings.StartWithWindows.Sub">系统登录时自动运行，并常驻托盘。</sys:String>
+    <sys:String x:Key="Settings.DelaySeconds.Sub">用于延时截图，倒计时结束后自动开始。</sys:String>
+    <sys:String x:Key="Settings.AutoElementDetection.Sub">选区时高亮光标下的窗口/控件，点击即可吸附到它。</sys:String>
+    <sys:String x:Key="Settings.ShowMagnifier.Sub">在选区边缘显示放大镜，便于精确对齐像素。</sys:String>
+    <sys:String x:Key="Settings.CaptureCursor.Sub">在截图中一并包含鼠标指针。</sys:String>
+    <sys:String x:Key="Settings.TransparentCorners.Sub">将 Windows 11 的圆角外区域处理为透明。</sys:String>
+    <sys:String x:Key="Settings.HistoryMax.Sub">最多保留的历史截图数量，0 表示不保存历史。</sys:String>
+    <sys:String x:Key="Settings.SaveDirPlaceholder">留空则使用默认目录</sys:String>
+    <sys:String x:Key="Settings.AutoSave.Sub">截图完成后立即保存到上面的文件夹。</sys:String>
+    <sys:String x:Key="Settings.AutoCopy.Sub">截图完成后自动复制到系统剪贴板。</sys:String>
+    <sys:String x:Key="Settings.AfterRegion.Sub">完成区域或窗口截图后默认执行的动作。</sys:String>
+    <sys:String x:Key="Settings.AfterOther.Sub">完成全屏、多屏等其他截图后默认执行的动作。</sys:String>
+    <sys:String x:Key="Settings.ApplyEffects.Sub">从编辑器复制或保存时套用效果流水线（阴影、边框等）。</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accuracy">识别精度</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accuracy.Sub">快速：内置轻量模型，开箱即用；精确：PP-OCRv5 服务端模型，中文识别更准，需一次性下载（约 165 MB），之后完全离线运行。</sys:String>
+    <sys:String x:Key="Settings.Ocr.Fast">快速（内置）</sys:String>
+    <sys:String x:Key="Settings.Ocr.Accurate">精确（需下载）</sys:String>
+    <sys:String x:Key="Settings.Ocr.Model">精确模型</sys:String>
+    <sys:String x:Key="Settings.Ocr.Installed">已安装，可离线使用。</sys:String>
+    <sys:String x:Key="Settings.Ocr.NotInstalled">未安装；选择“精确”前请先下载，未安装时自动使用快速模型。</sys:String>
+    <sys:String x:Key="Settings.Ocr.Download">下载模型</sys:String>
+    <sys:String x:Key="Settings.Ocr.Downloading">下载中 {0:0}%</sys:String>
+    <sys:String x:Key="Settings.Ocr.DownloadFailed">下载失败：{0}</sys:String>
+    <sys:String x:Key="Settings.Ocr.AutoCopy">识别后自动复制文字</sys:String>
+    <sys:String x:Key="Settings.Ocr.AutoCopy.Sub">识别完成后立即把文字复制到剪贴板。</sys:String>
 
     <!-- History -->
     <sys:String x:Key="History.Title">历史记录</sys:String>
@@ -201,6 +255,7 @@
     <sys:String x:Key="History.ClearAll">全部清除</sys:String>
     <sys:String x:Key="History.ConfirmClear">确定删除全部历史记录吗？此操作无法撤销。</sys:String>
     <sys:String x:Key="History.Count">共 {0} 条</sys:String>
+    <sys:String x:Key="History.OpenFailed">无法打开这条历史记录:{0}</sys:String>
 
     <!-- Overlay -->
     <sys:String x:Key="Overlay.Hint">拖动选择区域 · 单击窗口直接截取 · Esc 取消</sys:String>
@@ -208,6 +263,30 @@
     <sys:String x:Key="Overlay.Size">{0} × {1}</sys:String>
     <sys:String x:Key="Overlay.Position">X {0}  Y {1}</sys:String>
     <sys:String x:Key="Overlay.CopyColorHint">C：复制颜色</sys:String>
+    <sys:String x:Key="Overlay.HelpTitle">操作提示</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyDrag">拖动</sys:String>
+    <sys:String x:Key="Overlay.HelpDrag">选择区域</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyDoubleClick">双击</sys:String>
+    <sys:String x:Key="Overlay.HelpConfirm">确认截图</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyClick">单击</sys:String>
+    <sys:String x:Key="Overlay.HelpPickWindow">截取高亮的窗口</sys:String>
+    <sys:String x:Key="Overlay.HelpCancel">取消截图</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyArrows">↑↓←→</sys:String>
+    <sys:String x:Key="Overlay.HelpKeyArrowsShift">Shift+↑↓←→</sys:String>
+    <sys:String x:Key="Overlay.HelpNudge">微调选区 1 像素 / 10 像素（选中后）</sys:String>
+    <sys:String x:Key="Overlay.HelpFullMonitor">选区设为整个屏幕</sys:String>
+    <sys:String x:Key="Overlay.HelpLastRegion">使用上次截图的区域</sys:String>
+    <sys:String x:Key="Overlay.HelpMoveCursor">移动鼠标指针 1 像素（框选与拖动时）</sys:String>
+    <sys:String x:Key="Overlay.HelpToggleDetect">切换 窗口 / 界面元素 检测</sys:String>
+    <sys:String x:Key="Overlay.HelpElementLevel">选择 上层 / 下层 界面元素</sys:String>
+    <sys:String x:Key="Overlay.HelpRefresh">重新截取当前屏幕</sys:String>
+    <sys:String x:Key="Overlay.HelpCursorToggle">显示 / 隐藏 鼠标指针</sys:String>
+    <sys:String x:Key="Overlay.HelpCopyColor">复制光标处颜色</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">标注工具（选区内）：V 选择 · R 矩形 · E 椭圆 · L 直线 · A 箭头 · P 画笔 · H 荧光笔 · T 文字 · N 序号 · M 马赛克 · X 橡皮擦</sys:String>
+    <sys:String x:Key="Overlay.HelpClose">F1 显示 / 隐藏 · 点击任意处 关闭</sys:String>
+    <sys:String x:Key="Overlay.ElementDetectionElements">检测界面元素</sys:String>
+    <sys:String x:Key="Overlay.ElementDetectionWindows">检测窗口</sys:String>
+    <sys:String x:Key="Overlay.LastRegionOutside">上次区域不在当前屏幕上</sys:String>
 
     <!-- Scrolling -->
     <sys:String x:Key="Scroll.Stop">停止</sys:String>
@@ -224,6 +303,8 @@
     <sys:String x:Key="Editor.Title">编辑 - Modern ScreenShot</sys:String>
     <sys:String x:Key="Editor.Zoom">缩放</sys:String>
     <sys:String x:Key="Editor.Fit">适应窗口</sys:String>
+    <sys:String x:Key="Editor.ZoomIn">放大</sys:String>
+    <sys:String x:Key="Editor.ZoomOut">缩小</sys:String>
     <sys:String x:Key="Editor.ActualSize">实际大小</sys:String>
     <sys:String x:Key="Editor.Effects">效果</sys:String>
     <sys:String x:Key="Editor.Properties">属性</sys:String>
@@ -233,9 +314,71 @@
     <sys:String x:Key="Editor.CropHint">拖动选择裁剪范围，Enter 或双击应用，Esc 取消。再次按 Esc 可移除已有裁剪。</sys:String>
     <sys:String x:Key="Editor.EraserHint">按住鼠标拖过标注即可删除。</sys:String>
 
+    <!-- OCR 文字识别 -->
+    <sys:String x:Key="Ocr.Title">文字识别结果</sys:String>
+    <sys:String x:Key="Ocr.Running">正在识别文字…</sys:String>
+    <sys:String x:Key="Ocr.Done">识别完成 · {0} 行</sys:String>
+    <sys:String x:Key="Ocr.Failed">文字识别失败，详情请查看日志。</sys:String>
+    <sys:String x:Key="Ocr.Unavailable">OCR 模型缺失，请重新安装应用，或将模型放回 models 文件夹。</sys:String>
+    <sys:String x:Key="Ocr.Empty">未识别到文字</sys:String>
+    <sys:String x:Key="Ocr.Status">{0} 行 · {1:0.00} 秒 · {2}</sys:String>
+    <sys:String x:Key="Ocr.ModelFast">快速模型</sys:String>
+    <sys:String x:Key="Ocr.ModelAccurate">精确模型</sys:String>
+    <sys:String x:Key="Ocr.FallbackFast">精确模型未安装，已使用快速模型</sys:String>
+
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot 已在后台运行</sys:String>
     <sys:String x:Key="FirstRun.Body">按 Ctrl+Shift+A 进行区域截图，右键托盘图标可使用更多截图模式。</sys:String>
+
+    <!-- OOBE / 欢迎引导 -->
+    <sys:String x:Key="Oobe.Welcome">欢迎使用</sys:String>
+    <sys:String x:Key="Oobe.Tagline">现代、快速的截图、标注与分享体验。</sys:String>
+    <sys:String x:Key="Oobe.TipRegion">按 Ctrl+Shift+A 即可截取屏幕上任意区域。</sys:String>
+    <sys:String x:Key="Oobe.TipTray">应用常驻托盘，右键托盘图标可使用全部截图模式。</sys:String>
+    <sys:String x:Key="Oobe.TipEditor">截图后可立即标注、添加特效并钉在屏幕上。</sys:String>
+    <sys:String x:Key="Oobe.Skip">跳过</sys:String>
+    <sys:String x:Key="Oobe.GetStarted">开始使用</sys:String>
+    <sys:String x:Key="Oobe.ConfigTitle">快速设置</sys:String>
+    <sys:String x:Key="Oobe.ConfigSub">这些以后都能在“设置”里修改。</sys:String>
+    <sys:String x:Key="Oobe.LangLabel">语言</sys:String>
+    <sys:String x:Key="Oobe.ThemeLabel">主题</sys:String>
+    <sys:String x:Key="Oobe.AfterLabel">截图后</sys:String>
+    <sys:String x:Key="Oobe.Done">完成</sys:String>
+    <sys:String x:Key="Settings.ResetOobe">重新显示欢迎界面</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Sub">下次启动应用时将重新播放首次使用的欢迎动画。</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Button">重置</sys:String>
+    <sys:String x:Key="Settings.ResetOobe.Done">下次启动 Modern ScreenShot 时将重新播放欢迎界面。</sys:String>
+
+    <!-- 隐藏调试分类（连点"关于"5 次解锁） -->
+    <sys:String x:Key="Settings.Debug">调试</sys:String>
+    <sys:String x:Key="Settings.Debug.Sub">开发者工具，此分类默认隐藏。</sys:String>
+    <sys:String x:Key="Settings.Debug.Unlocked">已解锁调试工具。</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe">预览欢迎动画</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe.Sub">打开首次使用欢迎界面并播放其入场动画，不会改变你的首次使用状态。</sys:String>
+    <sys:String x:Key="Settings.Debug.PreviewOobe.Button">播放预览</sys:String>
+
+    <!-- 贴图窗口（Snipaste 风格） -->
+    <sys:String x:Key="Pin.CopyImage">复制图像</sys:String>
+    <sys:String x:Key="Pin.SaveAs">图像另存为...</sys:String>
+    <sys:String x:Key="Pin.Shadow">窗口阴影</sys:String>
+    <sys:String x:Key="Pin.Zoom">缩放</sys:String>
+    <sys:String x:Key="Pin.ZoomIn">放大</sys:String>
+    <sys:String x:Key="Pin.ZoomOut">缩小</sys:String>
+    <sys:String x:Key="Pin.Zoom100">重置</sys:String>
+    <sys:String x:Key="Pin.ZoomFit">适应屏幕</sys:String>
+    <sys:String x:Key="Pin.Background">背景模式</sys:String>
+    <sys:String x:Key="Pin.BgOriginal">原始</sys:String>
+    <sys:String x:Key="Pin.BgWhite">白色</sys:String>
+    <sys:String x:Key="Pin.BgGray">灰色</sys:String>
+    <sys:String x:Key="Pin.BgBlack">黑色</sys:String>
+    <sys:String x:Key="Pin.ImageOps">图像处理</sys:String>
+    <sys:String x:Key="Pin.Rotate">旋转 90°</sys:String>
+    <sys:String x:Key="Pin.FlipH">水平翻转</sys:String>
+    <sys:String x:Key="Pin.Reset">复位</sys:String>
+    <sys:String x:Key="Pin.Paste">粘贴</sys:String>
+    <sys:String x:Key="Pin.ReplaceFile">替换为文件...</sys:String>
+    <sys:String x:Key="Pin.CopySize">复制尺寸</sys:String>
+    <sys:String x:Key="Pin.PasteEmpty">剪贴板里没有图片。</sys:String>
 
     <!-- Common -->
     <sys:String x:Key="Common.Yes">是</sys:String>

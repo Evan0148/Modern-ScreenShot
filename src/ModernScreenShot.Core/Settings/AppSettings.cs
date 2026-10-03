@@ -1,10 +1,13 @@
 using ModernScreenShot.Core.Imaging;
+using ModernScreenShot.Core.Ocr;
 
 namespace ModernScreenShot.Core.Settings;
 
 public enum CaptureMode { Region, Fullscreen, AllMonitors, ActiveWindow, WindowPick, LastRegion, Scrolling, DelayRegion }
 
-public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin, FloatingThumbnail }
+/// <summary>Append new members at the END: the settings window maps combo indices to this enum's
+/// declaration order, so inserting in the middle would silently reassign every stored choice.</summary>
+public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin, FloatingThumbnail, OcrText }
 
 public enum ImageFormat { Png, Jpg, WebP }
 
@@ -76,6 +79,13 @@ public sealed class CaptureSettings
 {
     public int DelaySeconds { get; set; } = 3;
     public bool ShowMagnifier { get; set; } = true;
+    /// <summary>Snipaste-style snapping: while selecting a region, highlight the window/control under
+    /// the cursor and let a click snap the selection to it.</summary>
+    public bool AutoElementDetection { get; set; } = true;
+    /// <summary>High capture priority: force the selection overlay to the very top of the z-order so it
+    /// can sit above (and capture) always-on-top windows. Only takes effect when the app runs elevated
+    /// — a normal-integrity process cannot rise above higher-integrity windows. Defaults false.</summary>
+    public bool CapturePriority { get; set; }
     public bool CaptureCursor { get; set; }
     /// <summary>Mask Windows 11 rounded window corners as transparent in window captures.</summary>
     public bool WindowTransparentCorners { get; set; } = true;
@@ -94,6 +104,9 @@ public sealed class CaptureSettings
 
 public sealed class EditorSettings
 {
+    /// <summary>Last-used geometry shape for the merged "几何" toolbar entry ("Rect"/"Ellipse"/"Line"/"Arrow").
+    /// A plain click on the toolbar's geometry button re-activates this shape; the long-press menu changes it.</summary>
+    public string GeometryTool { get; set; } = "Rect";
     public string StrokeColor { get; set; } = "#FFFF3B30";
     public double StrokeThickness { get; set; } = 4;
     public string FontFamily { get; set; } = "Microsoft YaHei UI";
@@ -111,6 +124,15 @@ public sealed class EditorSettings
         ["#FFFF3B30", "#FFFF9500", "#FFFFCC00", "#FF34C759", "#FF007AFF", "#FF5856D6", "#FFAF52DE", "#FFFFFFFF", "#FF8E8E93", "#FF000000"];
 }
 
+public sealed class OcrSettings
+{
+    /// <summary>Fast = bundled PP-OCRv5 mobile model (offline out of the box); Accurate = PP-OCRv5
+    /// server model downloaded on demand. Falls back to Fast while the server files are absent.</summary>
+    public OcrAccuracy Accuracy { get; set; } = OcrAccuracy.Fast;
+    /// <summary>Copy the recognized text to the clipboard as soon as a recognition finishes.</summary>
+    public bool CopyAfterRecognize { get; set; } = true;
+}
+
 public sealed class AppSettings
 {
     public const int CurrentVersion = 1;
@@ -121,11 +143,16 @@ public sealed class AppSettings
     /// <summary>"System", "Light" or "Dark".</summary>
     public string Theme { get; set; } = "System";
     public bool StartWithWindows { get; set; }
+    /// <summary>Snipaste-style drop shadow behind pinned images (toggle in the pin's context menu).</summary>
+    public bool PinShadow { get; set; } = true;
     public bool FirstRunShown { get; set; }
+    /// <summary>True once the user has finished (or skipped) the first-run OOBE welcome flow.</summary>
+    public bool OobeCompleted { get; set; }
     public HotkeySettings Hotkeys { get; set; } = new();
     public OutputSettings Output { get; set; } = new();
     public CaptureSettings Capture { get; set; } = new();
     public EditorSettings Editor { get; set; } = new();
+    public OcrSettings Ocr { get; set; } = new();
     /// <summary>Effect settings applied to new captures (last used).</summary>
     public EffectSettings Effects { get; set; } = BuiltInPresets.Clean().Settings;
     public List<EffectPreset> UserPresets { get; set; } = [];

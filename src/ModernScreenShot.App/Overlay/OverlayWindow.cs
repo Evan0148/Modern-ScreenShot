@@ -77,6 +77,15 @@ internal sealed class OverlayWindow : Window
             _dpiCache = -1;
             if (!_renderHooked) { CompositionTarget.Rendering += OnRenderingFrame; _renderHooked = true; }
             if (activate) { Activate(); _renderer.Focus(); }
+            // Snipaste-style: the shortcut card is visible from the start on the monitor the user
+            // is looking at (the activated one); F1 re-toggles it, the first click dismisses it.
+            // Scrolling capture (auto-confirm) has no selection interactions to advertise.
+            if (activate)
+            {
+                Activate();
+                _renderer.Focus();
+                if (!_session.AutoConfirmOnSelect) ShowHelpPanel();
+            }
         };
         DpiChanged += (_, _) => _dpiCache = -1;
         _session.AnnotationChanged += OnAnnotationChanged;
@@ -163,6 +172,19 @@ internal sealed class OverlayWindow : Window
         long add = NativeMethods.WS_EX_TOOLWINDOW | (activate ? 0 : NativeMethods.WS_EX_NOACTIVATE);
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE, (IntPtr)(ex | add));
         if (activate) NativeMethods.SetForegroundWindow(hwnd);
+
+        // High capture priority (elevated only): re-assert HWND_TOPMOST and force foreground so this
+        // overlay sits above other always-on-top windows. Within the topmost band z-order is "last
+        // asserted wins", so a second SetWindowPos after the initial placement lifts us over peers.
+        // UIPI still blocks rising over *higher*-integrity windows, which is why the toggle requires
+        // elevation (CaptureService only sets CapturePriority when the process is elevated).
+        if (_session.CapturePriority)
+        {
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST, Monitor.Bounds.X, Monitor.Bounds.Y,
+                Monitor.Bounds.Width, Monitor.Bounds.Height,
+                NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_NOACTIVATE);
+            if (activate) NativeMethods.SetForegroundWindow(hwnd);
+        }
     }
 
     // ---- input ----
@@ -170,6 +192,17 @@ internal sealed class OverlayWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (_textOverlay is not null && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase) return; // typing
+        // F1 toggles this window's help card — only the monitor window that received the key shows it.
+        if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            ToggleHelpPanel();
+            return;
+        }
+        // While the help card is visible, Esc still cancels the session outright (Snipaste
+        // semantics): the card is passive scenery, and swallowing Esc for it would force users to
+        // press Esc twice to abort a capture. The card disappears with the session; F1 or any
+        // click dismisses it earlier.
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
             switch (e.Key)
@@ -183,6 +216,10 @@ internal sealed class OverlayWindow : Window
                     e.Handled = true;
                     _session.DoRedo();
                     return;
+                case Key.A when _session.Mode == CaptureMode.Region:
+                    e.Handled = true;
+                    _session.SelectFullMonitor(Monitor.Bounds); // the monitor this window covers
+                    return;
             }
         }
         bool shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
@@ -191,6 +228,9 @@ internal sealed class OverlayWindow : Window
 
     private void OnPreviewLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // A click anywhere closes the F1 help card — including one on another monitor's window —
+        // and then proceeds with its normal meaning (snap, tool press, ...).
+        _session.HideHelpPanels();
         if (_textOverlay is not null)
         {
             // Clicks inside the text box must reach it (caret move / text selection) — only a
@@ -213,7 +253,11 @@ internal sealed class OverlayWindow : Window
 
     private void OnPreviewLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (IsOverToolbar(e)) return;
+        // While a drag is in flight this window holds mouse capture, and the release can land over
+        // the visible toolbar (the natural end of a bottom-right resize drag). Swallowing it would
+        // leave the selection glued to the cursor with no button held — finish the drag instead;
+        // the toolbar early-return only applies to plain uncaptured clicks.
+        if (!IsMouseCaptured && IsOverToolbar(e)) return;
         _session.OnLeftUp(this, ToVirtual(e.GetPosition(_renderer)));
         if (IsMouseCaptured) ReleaseMouseCapture();
     }
@@ -230,9 +274,17 @@ internal sealed class OverlayWindow : Window
 
     private void OnRenderingFrame(object? sender, EventArgs e)
     {
-        if (!_movePending) return;
-        _movePending = false;
-        _session.OnMove(this, _pendingMove);
+        if (_movePending)
+        {
+            _movePending = false;
+            _session.OnMove(this, _pendingMove);
+        }
+        // Keep repainting while the hover box is gliding to its new element, even after the mouse
+        // stops moving — otherwise the animation would freeze mid-transition.
+        else if (_renderer.HoverAnimating)
+        {
+            _renderer.InvalidateVisual();
+        }
     }
 
     private bool IsOverToolbar(MouseButtonEventArgs e) =>
@@ -242,6 +294,13 @@ internal sealed class OverlayWindow : Window
 
     private void ApplyCursorShape()
     {
+        // Over the toolbar the pointer is a plain arrow: the crosshair/resize shapes only make
+        // sense on the selection surface, and the buttons already switch to Hand over themselves.
+        if (_toolbarHost.Visibility == Visibility.Visible && _toolbarHost.IsMouseOver)
+        {
+            Cursor = Cursors.Arrow;
+            return;
+        }
         var cur = _session.Cursor;
         if (_session.Tool is not null) { Cursor = Cursors.Cross; return; }
         if (_session.CursorValid && !Monitor.Bounds.Contains(cur.X, cur.Y))
@@ -317,6 +376,7 @@ internal sealed class OverlayWindow : Window
         panel.Children.Add(MakeIconButton("\uE8C8", "Action.Copy", (_, _) => _session.Confirm(OverlayIntent.Copy)));
         panel.Children.Add(MakeIconButton("\uE74E", "Action.Save", (_, _) => _session.Confirm(OverlayIntent.Save)));
         panel.Children.Add(MakeIconButton("\uE718", "Action.Pin", (_, _) => _session.Confirm(OverlayIntent.Pin)));
+        panel.Children.Add(MakeElementIconButton(EditorIcons.Ocr(), "Action.Ocr", (_, _) => _session.Confirm(OverlayIntent.Ocr)));
         panel.Children.Add(MakeIconButton("\uE73E", "Action.Edit", (_, _) => _session.Confirm(OverlayIntent.Edit)));
         panel.Children.Add(MakeIconButton("\uE711", "Action.Cancel", (_, _) => _session.Cancel()));
 
@@ -642,6 +702,15 @@ internal sealed class OverlayWindow : Window
         return button;
     }
 
+    /// <summary>Same button, but hosting a shaped icon (the editor's icon vocabulary) instead of a
+    /// Segoe glyph — for actions that have no matching glyph, so both toolbars stay visually aligned.</summary>
+    private Button MakeElementIconButton(FrameworkElement icon, string tooltipKey, RoutedEventHandler onClick)
+    {
+        var button = MakeIconButton(null, tooltipKey, onClick);
+        button.Content = icon;
+        return button;
+    }
+
     private Button? ActiveToolButton() =>
         _session.Tool is { } tool && _toolButtons.TryGetValue(tool, out var b) ? b : null;
 
@@ -712,21 +781,22 @@ internal sealed class OverlayWindow : Window
 
     private static Canvas SelectIcon()
     {
+        // Filled Snipaste-style cursor. The old open polyline was missing its closing edge (the
+        // top diagonal back to the tip), so the glyph read as a broken vertical stroke + wing.
         var path = new System.Windows.Shapes.Path
         {
             Data = Geo(g =>
             {
-                g.BeginFigure(new Point(4, 2), false, false);
-                g.LineTo(new Point(4, 15), true, false);
-                g.LineTo(new Point(7.5, 11.5), true, false);
-                g.LineTo(new Point(10, 16), true, false);
-                g.LineTo(new Point(12, 15), true, false);
-                g.LineTo(new Point(9.5, 10.5), true, false);
-                g.LineTo(new Point(14, 10), true, false);
+                g.BeginFigure(new Point(5.5, 1.5), true, false);
+                g.LineTo(new Point(5.5, 14.5), true, false);
+                g.LineTo(new Point(8.4, 11.6), true, false);
+                g.LineTo(new Point(10.4, 16.2), true, false);
+                g.LineTo(new Point(12.4, 15.3), true, false);
+                g.LineTo(new Point(10.4, 10.8), true, false);
+                g.LineTo(new Point(14.8, 10.3), true, false);
+                g.LineTo(new Point(5.5, 1.5), true, false);
             }),
-            Stroke = Brushes.White,
-            StrokeThickness = 1.5,
-            StrokeLineJoin = PenLineJoin.Round,
+            Fill = Brushes.White,
         };
         return new Canvas { Width = 18, Height = 18, Children = { path } };
     }
@@ -776,6 +846,16 @@ internal sealed class OverlayWindow : Window
         }
         if (!_toolbarShown)
         {
+            // Entrance (motion audit #1): fired only on this hidden→shown transition — UpdateToolbar
+            // itself runs per session change, but this branch is transition-gated, so no per-frame
+            // animation allocations. Opacity leg on the host: clear any stale animation, seed 0
+            // (a fresh per-session window never inherits a residual 1), then fade. Slide leg on the
+            // inner panel's own transform — the positioning _toolbarOffset is never animated.
+            // Reduced motion: SlideIn drops the slide, FadeIn keeps this pure fade.
+            _toolbarHost.BeginAnimation(UIElement.OpacityProperty, null);
+            _toolbarHost.Opacity = 0;
+            UiMotion.FadeIn(_toolbarHost, ms: 150);
+            if (_toolbarHost.Child is StackPanel content) UiMotion.SlideIn(content, 0, 6, 150);
             _toolbarHost.Visibility = Visibility.Visible;
             _toolbarShown = true;
         }
@@ -800,6 +880,9 @@ internal sealed class OverlayWindow : Window
         y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
         _toolbarOffset.X = x;
         _toolbarOffset.Y = y;
+        // The auto-shown help card must keep clear of the toolbar's new rect (a selection near the
+        // bottom-left would otherwise park the strip on top of the card).
+        if (_helpPanel is not null) PositionHelpPanel();
     }
 
     // ---- inline annotation UI ----
@@ -810,10 +893,16 @@ internal sealed class OverlayWindow : Window
 
     private void OnTextEditRequested(object? sender, TextEditRequestEventArgs e)
     {
+        var selection = _session.Selection;
+        if (selection is null) return;
+        // The session fans this event out to every overlay window of a multi-monitor capture;
+        // only the window whose monitor contains the click may host the text box, otherwise a
+        // phantom box on the other monitor would steal keyboard focus and commit at a wrong spot.
+        if (!Monitor.Bounds.Contains(selection.Value.X + (int)e.Position.X, selection.Value.Y + (int)e.Position.Y)) return;
         CloseTextOverlay(commit: false);
         _textEditPosition = e.Position;
         double scale = Scale;
-        var sel = _session.Selection!.Value;
+        var sel = selection.Value;
         _textOverlay = new TextBox
         {
             AcceptsReturn = true,
@@ -821,7 +910,10 @@ internal sealed class OverlayWindow : Window
             FontFamily = new FontFamily(_session.EditorFontFamily),
             FontWeight = _session.EditorFontBold ? FontWeights.Bold : FontWeights.Normal,
             Foreground = AnnotationRenderer.BrushFor(_session.EditorStrokeColor),
-            Background = new SolidColorBrush(Color.FromArgb(0xC0, 0xFF, 0xFF, 0xFF)),
+            // Checkerboard instead of the old white 75% panel: a user-chosen white stroke was
+            // invisible on white. Any stroke color reads on the checker, and it carries the same
+            // "transparent surface" semantics as the editor canvas.
+            Background = AnnotationRenderer.CheckerboardBrush(),
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)),
             BorderThickness = new Thickness(1.5),
             MinWidth = 120,
@@ -865,5 +957,187 @@ internal sealed class OverlayWindow : Window
         _toolbarLayer.Children.Remove(tb);
         if (commit) _session.CommitText(pos, tb.Text);
         _session.InvalidateAll();
+    }
+
+    // ---- F1 help card (操作提示) ----
+    //
+    // Dark rounded card matching the toolbar's visual vocabulary (frozen brushes, no theme
+    // resources — the overlay tree is deliberately hand-rolled). Built lazily on the first F1,
+    // shown in the window that received the key, positioned bottom-center, clamped to the monitor
+    // and moved above the toolbar when the two would overlap. No entrance animation: the card is
+    // add/remove-only, which keeps diagnostic render paths deterministic (UiMotion.Suppress-safe).
+
+    private static readonly Brush HelpCardBrush = Freeze(new SolidColorBrush(Color.FromArgb(0xE0, 0x1C, 0x1C, 0x1E)));
+    private static readonly Brush HelpCardStrokeBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush HelpChipFillBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush HelpChipStrokeBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush HelpTextBrush = Freeze(new SolidColorBrush(Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush HelpSecondaryBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)));
+    private Border? _helpPanel;
+
+    private void ToggleHelpPanel()
+    {
+        if (_helpPanel is not null) HideHelpPanel();
+        else ShowHelpPanel();
+    }
+
+    private void ShowHelpPanel()
+    {
+        _helpPanel ??= BuildHelpPanel();
+        if (!_toolbarLayer.Children.Contains(_helpPanel)) _toolbarLayer.Children.Add(_helpPanel);
+        PositionHelpPanel();
+    }
+
+    /// <summary>Removes the card from the tree (session also calls this cross-window on clicks).</summary>
+    internal void HideHelpPanel()
+    {
+        if (_helpPanel is null) return;
+        _toolbarLayer.Children.Remove(_helpPanel);
+    }
+
+    /// <summary>The session swapped the frozen frame (F5 / ` / !): rebuild this monitor's slice.</summary>
+    internal void OnFrozenFrameSwapped() => _renderer.Reslice(_session.FrozenSource);
+
+    /// <summary>Bottom-left corner within this monitor window (Snipaste-style, where the card is
+    /// part of the session's static chrome); never overlaps the toolbar — the card is parked right
+    /// above it when the rects would intersect.</summary>
+    private void PositionHelpPanel()
+    {
+        if (_helpPanel is null) return;
+        _helpPanel.MaxWidth = Math.Max(240, ActualWidth - 16);
+        _helpPanel.Measure(new Size(_helpPanel.MaxWidth, double.PositiveInfinity));
+        var size = _helpPanel.DesiredSize;
+        double x = 16;
+        double y = ActualHeight - size.Height - 12;
+        if (_toolbarShown && _toolbarSize.Width > 0)
+        {
+            var card = new Rect(x, y, size.Width, size.Height);
+            var toolbar = new Rect(_toolbarOffset.X, _toolbarOffset.Y, _toolbarSize.Width, _toolbarSize.Height);
+            if (card.IntersectsWith(toolbar)) y = toolbar.Top - size.Height - 10;
+        }
+        y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
+        Canvas.SetLeft(_helpPanel, x);
+        Canvas.SetTop(_helpPanel, y);
+    }
+
+    /// <summary>Builds the shortcut card once. Rows reflect what is actually wired for THIS session
+    /// (mode, magnifier setting, wired refresh delegate, stored last region) so the card never
+    /// advertises a key that would do nothing.</summary>
+    private Border BuildHelpPanel()
+    {
+        bool region = _session.Mode == CaptureMode.Region;
+        bool annotate = region && !_session.AutoConfirmOnSelect;
+        bool refresh = _session.CanRefreshFrozen;
+        bool magnifier = _session.MagnifierEnabled;
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        int row = 0;
+        void AddRow(string[] chips, string descKey)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var keys = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 10, 3) };
+            foreach (var chip in chips) keys.Children.Add(HelpKeyChip(chip));
+            Grid.SetRow(keys, row);
+            Grid.SetColumn(keys, 0);
+            grid.Children.Add(keys);
+            var desc = new TextBlock
+            {
+                Text = L.Get(descKey),
+                FontSize = 12,
+                Foreground = HelpTextBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 3),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            Grid.SetRow(desc, row);
+            Grid.SetColumn(desc, 1);
+            grid.Children.Add(desc);
+            row++;
+        }
+
+        AddRow([L.Get("Overlay.HelpKeyDrag")], "Overlay.HelpDrag");
+        if (region)
+        {
+            AddRow(["Enter", L.Get("Overlay.HelpKeyDoubleClick")], "Overlay.HelpConfirm");
+        }
+        else
+        {
+            AddRow([L.Get("Overlay.HelpKeyClick")], "Overlay.HelpPickWindow");
+        }
+        AddRow(["Esc"], "Overlay.HelpCancel");
+        if (region)
+        {
+            AddRow([L.Get("Overlay.HelpKeyArrows"), L.Get("Overlay.HelpKeyArrowsShift")], "Overlay.HelpNudge");
+            AddRow(["Ctrl", "A"], "Overlay.HelpFullMonitor");
+            if (_session.HasLastRegion) AddRow(["Shift", "R"], "Overlay.HelpLastRegion");
+        }
+        AddRow(["W", "A", "S", "D"], "Overlay.HelpMoveCursor");
+        if (region) AddRow(["Tab"], "Overlay.HelpToggleDetect");
+        AddRow(["1", "2"], "Overlay.HelpElementLevel");
+        if (refresh) AddRow(["F5"], "Overlay.HelpRefresh");
+        if (refresh) AddRow(["`", "!"], "Overlay.HelpCursorToggle");
+        if (magnifier) AddRow(["C"], "Overlay.HelpCopyColor");
+        if (annotate) AddRow([], "Overlay.HelpTools");
+
+        var stack = new StackPanel { Orientation = Orientation.Vertical };
+        stack.Children.Add(new TextBlock
+        {
+            Text = L.Get("Overlay.HelpTitle"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = HelpTextBrush,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        // A 1px Border for the rule — a Separator collapses to a dot inside this hand-rolled tree.
+        stack.Children.Add(new Border { Height = 1, Background = HelpChipStrokeBrush, Margin = new Thickness(0, 0, 0, 2) });
+        stack.Children.Add(grid);
+        stack.Children.Add(new TextBlock
+        {
+            Text = L.Get("Overlay.HelpClose"),
+            FontSize = 11,
+            Foreground = HelpSecondaryBrush,
+            Margin = new Thickness(0, 6, 0, 0),
+        });
+
+        return new Border
+        {
+            Child = stack,
+            Background = HelpCardBrush,
+            BorderBrush = HelpCardStrokeBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(12, 10, 12, 8),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Focusable = false,
+            Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 2, Direction = 270, Opacity = 0.45 },
+        };
+    }
+
+    /// <summary>Outlined key cap, same visual idea as Shell/HotkeyChips but with the overlay's own
+    /// frozen dark brushes (HotkeyChips binds theme resources for the settings windows, which do
+    /// not fit the hand-rolled overlay tree).</summary>
+    private static Border HelpKeyChip(string text)
+    {
+        return new Border
+        {
+            CornerRadius = new CornerRadius(4),
+            Background = HelpChipFillBrush,
+            BorderBrush = HelpChipStrokeBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 2, 6, 2),
+            Margin = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = HelpTextBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
     }
 }

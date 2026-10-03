@@ -3,20 +3,24 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using ModernScreenShot.App.Controls;
 using ModernScreenShot.App.Localization;
 using ModernScreenShot.App.Services;
 using ModernScreenShot.App.Shell;
+using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Settings;
 using L = ModernScreenShot.App.Localization.LocalizationService;
 
 namespace ModernScreenShot.App.Settings;
 
 /// <summary>
-/// Tabbed settings window. Control values are written back to the settings store when the window
-/// closes (single save point); language / theme / autostart take effect immediately on change.
-/// All labels are DynamicResource strings so a language switch updates the open window live;
-/// code-built parts (hotkey rows, about texts) refresh via <see cref="LocalizationService.LanguageChanged"/>.
+/// Settings window with a left navigation rail and card-based content pages. Control values are
+/// written back to the settings store when the window closes (single save point); language / theme /
+/// autostart take effect immediately on change. All labels are DynamicResource strings so a language
+/// switch updates the open window live; code-built parts (hotkey rows, about texts) refresh via
+/// <see cref="LocalizationService.LanguageChanged"/>.
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -24,23 +28,32 @@ public partial class SettingsWindow : Window
     private readonly LocalizationService _localization;
     private readonly HotkeyService? _hotkeys;
     private readonly Action<string>? _notifyConflict;
+    private readonly Action? _onRestartAsAdmin;
+    private readonly Action? _onPreviewOobe;
     private readonly Dictionary<string, HotkeyBinding> _editedBindings;
+    /// <summary>Clicks accumulated on the About nav item toward unlocking the hidden Debug category.</summary>
+    private int _debugUnlockClicks;
+    private const int DebugUnlockClickCount = 5;
     private readonly Dictionary<string, TextBlock> _conflictMarks = [];
     private readonly Dictionary<string, TextBlock> _actionLabels = [];
-    private readonly Dictionary<string, HotkeyRecorder> _recorders = [];
+    private readonly Dictionary<string, ContentControl> _chipHosts = [];
     private bool _loading = true;
     private bool _wasShown;
     private bool _syncingLanguage;
     private bool _revertingAutostart;
 
     public SettingsWindow(SettingsStore settings, LocalizationService localization,
-        HotkeyService? hotkeys, Action<string>? notifyConflict)
+        HotkeyService? hotkeys, Action<string>? notifyConflict, Action? onRestartAsAdmin,
+        Action? onPreviewOobe = null)
     {
         InitializeComponent();
+        AppTitleBar.Attach(this); // custom title bar (Controls/AppTitleBar) replaces the OS caption
         _settings = settings;
         _localization = localization;
         _hotkeys = hotkeys;
         _notifyConflict = notifyConflict;
+        _onRestartAsAdmin = onRestartAsAdmin;
+        _onPreviewOobe = onPreviewOobe;
         _editedBindings = settings.Current.Hotkeys.Bindings.ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
 
         LoadGeneralTab();
@@ -48,12 +61,51 @@ public partial class SettingsWindow : Window
         LoadCaptureTab();
         LoadOutputTab();
         LoadEffectsTab();
+        LoadOcrTab();
         RefreshAboutTexts();
         _loading = false;
 
         _localization.LanguageChanged += OnLanguageChanged;
         Loaded += (_, _) => _wasShown = true;
         Closed += OnClosed;
+    }
+
+    // ---- navigation ----
+
+    /// <summary>Switches the visible content page to match the selected left-rail item. Kept as simple
+    /// visibility toggling (rather than frame navigation) so the diagnostic --render-settings snapshot
+    /// path stays deterministic.</summary>
+    private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Pages is null) return; // fires once during InitializeComponent before the tree is ready
+        var pages = new[] { PageGeneral, PageHotkeys, PageCapture, PageOutput, PageEffects, PageAbout, PageDebug };
+        int index = Math.Clamp(NavList.SelectedIndex, 0, pages.Length - 1);
+        for (int i = 0; i < pages.Length; i++)
+            pages[i].Visibility = i == index ? Visibility.Visible : Visibility.Collapsed;
+        // Entrance (motion audit #4, upgraded after user feedback — a bare 180ms fade was
+        // imperceptible on the dark panel): slide (10px up) + fade the newly revealed page over
+        // 220ms; the exit stays instant. Only a live user click animates: the
+        // InitializeComponent-time fire bails at the Pages guard above, IsLoaded stays false until
+        // the window is shown, and the diagnostic --render-settings path (SelectPage) runs under
+        // UiMotion.Suppress, which snaps to the final value. FadeSlideIn forces opacity from 0 on
+        // every call so repeated switches replay; SnapshotAndReplace makes rapid nav clicks
+        // freely interruptible and no branch can strand the page at 0.
+        if (IsLoaded)
+        {
+            UiMotion.FadeSlideIn(pages[index], 0, 10, 220);
+            // Rail feedback for the switch itself: the selected item's accent bar grows up from
+            // its bottom edge. Suppress/reduced-motion snap it to full height (GrowY).
+            if (NavList.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem item &&
+                item.Template.FindName("Bar", item) is Border bar)
+                UiMotion.GrowY(bar, 160);
+        }
+    }
+
+    /// <summary>Selects a content page by index (used by the diagnostic renderer, replacing the old
+    /// TabControl selection).</summary>
+    public void SelectPage(int index)
+    {
+        if (index >= 0 && index < NavList.Items.Count) NavList.SelectedIndex = index;
     }
 
     // ---- tab loading ----
@@ -77,62 +129,138 @@ public partial class SettingsWindow : Window
 
     private void LoadHotkeyTab()
     {
+        // The hotkey page's rows are standalone card rows, exactly like every other page's cards:
+        // a ui:CardControl with the same margin/padding the XAML "Card" style gives them, the
+        // action name as the header and the chips + pencil control on the right. The wrapper
+        // Border around HotkeyPanel in the XAML predates this layout and is reduced to a plain
+        // transparent container here, so the rows don't draw card chrome inside card chrome.
+        if (HotkeyPanel.Parent is Border wrapper)
+        {
+            wrapper.Background = Brushes.Transparent;
+            wrapper.BorderThickness = new Thickness(0);
+            wrapper.Padding = new Thickness(0);
+        }
+
         foreach (var action in HotkeyActions.All)
         {
-            var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var label = new TextBlock
-            {
-                Text = L.Get($"Mode.{action}"),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 16, 0),
-            };
-            var recorder = new HotkeyRecorder();
-            recorder.Binding = _editedBindings.GetValueOrDefault(action, new HotkeyBinding());
+            // Header: the action name (RowTitle, like all other card headers) with a small
+            // row-level conflict glyph next to it.
+            var label = new TextBlock { Text = L.Get($"Mode.{action}") };
+            if (TryFindResource("RowTitle") is Style titleStyle) label.Style = titleStyle;
             var mark = new TextBlock
             {
-                Text = L.Get("Settings.Conflict"),
-                Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)),
-                Margin = new Thickness(12, 0, 0, 0),
+                Text = "\uE7BA", // warning glyph (row-level exclamation mark)
+                FontFamily = HotkeyChips.GlyphFont,
+                FontSize = 12,
+                Margin = new Thickness(6, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Visibility = Visibility.Collapsed,
+                ToolTip = L.Get("Settings.Conflict"),
             };
-            Grid.SetColumn(label, 0);
-            Grid.SetColumn(recorder, 1);
-            Grid.SetColumn(mark, 2);
-            row.Children.Add(label);
-            row.Children.Add(recorder);
-            row.Children.Add(mark);
+            mark.SetResourceReference(TextBlock.ForegroundProperty, "SystemFillColorCriticalBrush");
+            var titleLine = new StackPanel { Orientation = Orientation.Horizontal };
+            titleLine.Children.Add(label);
+            titleLine.Children.Add(mark);
+
+            var chipsHost = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+            var editButton = MakeEditButton(chipsHost);
+            editButton.Click += (_, _) => OpenHotkeyDialog(action);
+
+            var row = new Wpf.Ui.Controls.CardControl
+            {
+                Margin = new Thickness(0, 0, 0, 8), // "Card" style values in the XAML
+                Padding = new Thickness(16, 12, 16, 12),
+                Header = titleLine,
+                Content = editButton,
+            };
             HotkeyPanel.Children.Add(row);
 
             _actionLabels[action] = label;
-            _recorders[action] = recorder;
             _conflictMarks[action] = mark;
-            recorder.BindingChanged += (_, _) =>
-            {
-                _editedBindings[action] = recorder.Binding;
-                RefreshConflicts();
-            };
+            _chipHosts[action] = chipsHost;
+            RefreshHotkeyRow(action);
         }
+        RefreshConflicts();
+    }
+
+    /// <summary>Subtle button (transparent until hover — the WPF-UI Transparent appearance hovers
+    /// to SubtleFillColorSecondary) hosting the chips display or the unbound placeholder plus the
+    /// pencil glyph in the secondary text color. Clicking anywhere in it opens the edit dialog.
+    /// A plain WPF-UI Button — not a subclass — keeps the implicit themed style working.</summary>
+    private static Wpf.Ui.Controls.Button MakeEditButton(ContentControl chipsHost)
+    {
+        var pencil = new TextBlock
+        {
+            Text = "\uE70F", // Edit (pencil)
+            FontFamily = HotkeyChips.GlyphFont,
+            FontSize = 12,
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        pencil.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
+        var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        content.Children.Add(chipsHost);
+        content.Children.Add(pencil);
+        return new Wpf.Ui.Controls.Button
+        {
+            Content = content,
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+            Cursor = Cursors.Hand,
+            Padding = new Thickness(8, 3, 8, 3),
+            // Matches the standard row-control height (ComboBox / NumberBox), so the hotkey card
+            // rows come out the same height as every other card on the page.
+            MinHeight = 35.5,
+            HorizontalContentAlignment = HorizontalAlignment.Right,
+        };
+    }
+
+    /// <summary>Rebuilds a row's chips (also the language-change path: the placeholder is localized).</summary>
+    private void RefreshHotkeyRow(string action)
+    {
+        if (!_chipHosts.TryGetValue(action, out var host)) return;
+        var binding = _editedBindings.GetValueOrDefault(action, new HotkeyBinding());
+        host.Content = binding.IsEmpty
+            ? HotkeyChips.Placeholder()
+            : HotkeyChips.Build(binding, HotkeyChips.ChipSize.Inline);
+    }
+
+    /// <summary>Opens the modal capture dialog for one action. Only reachable by an actual
+    /// click on a row's edit button — the diagnostic --render-settings / MSS_DUMP_TREE paths never
+    /// construct the dialog. On Save the binding joins _editedBindings (persisted with the rest when
+    /// the window closes); on any other exit the previous binding is kept untouched.</summary>
+    private void OpenHotkeyDialog(string action)
+    {
+        var dialog = new HotkeyEditDialog(action, _editedBindings, _hotkeys, _localization);
+        if (!dialog.ShowAndEdit(this)) return;
+        _editedBindings[action] = dialog.Result;
+        RefreshHotkeyRow(action);
         RefreshConflicts();
     }
 
     private void LoadCaptureTab()
     {
         var capture = _settings.Current.Capture;
-        DelayBox.Text = capture.DelaySeconds.ToString(CultureInfo.InvariantCulture);
+        DelayBox.Value = capture.DelaySeconds;
+        AutoDetectBox.IsChecked = capture.AutoElementDetection;
         ShowMagnifierBox.IsChecked = capture.ShowMagnifier;
         CaptureCursorBox.IsChecked = capture.CaptureCursor;
         TransparentCornersBox.IsChecked = capture.WindowTransparentCorners;
         MacShadowBox.IsChecked = capture.MacStyleWindowShadow;
-        HistoryMaxBox.Text = _settings.Current.HistoryMaxCount.ToString(CultureInfo.InvariantCulture);
+        HistoryMaxBox.Value = _settings.Current.HistoryMaxCount;
+        UpdateMacShadowHint();
+
+        // Capture priority is only meaningful when elevated. Elevated → show the toggle; normal → show
+        // the "run as admin" button, since the priority boost can't work without elevation.
+        bool elevated = ElevationService.IsElevated;
+        CapturePriorityBox.IsChecked = capture.CapturePriority;
+        CapturePriorityBox.Visibility = elevated ? Visibility.Visible : Visibility.Collapsed;
+        RunAsAdminButton.Visibility = elevated ? Visibility.Collapsed : Visibility.Visible;
+        CapturePriorityHint.Text = L.Get(elevated ? "Settings.CapturePriorityHint" : "Settings.CapturePriorityHintNormal");
     }
 
     private void OnMacShadowChanged(object sender, RoutedEventArgs e)
     {
+        UpdateMacShadowHint();
         if (_loading) return;
         // Apply immediately: the window otherwise persists only on close, and users toggling this
         // expect the very next capture to include the shadow.
@@ -145,6 +273,45 @@ public partial class SettingsWindow : Window
         {
             Log.Error("Saving settings failed", ex);
         }
+    }
+
+    private void OnCapturePriorityChanged(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        // Apply immediately (mirrors OnMacShadowChanged) so the next capture picks it up without
+        // waiting for the window to close.
+        _settings.Current.Capture.CapturePriority = CapturePriorityBox.IsChecked == true;
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Saving settings failed", ex);
+        }
+    }
+
+    private void OnRunAsAdminClick(object sender, RoutedEventArgs e)
+    {
+        var answer = MessageBox.Show(this,
+            L.Get("Settings.RunAsAdminConfirm"), L.Get("Settings.CapturePriority"),
+            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK);
+        if (answer != MessageBoxResult.OK) return;
+        // Persist any pending edits before the process is replaced by the elevated instance.
+        try { WriteBack(); _settings.Save(); }
+        catch (Exception ex) { Log.Error("Saving settings before elevation failed", ex); }
+        _onRestartAsAdmin?.Invoke();
+    }
+
+    /// <summary>Warns that a JPG export drops the transparent mac-style shadow (it fills the surround
+    /// with white). Shown only when the shadow is enabled and the chosen format has no alpha. The
+    /// Format control lives on another tab, so this is re-evaluated from both tabs' load paths.</summary>
+    private void UpdateMacShadowHint()
+    {
+        if (MacShadowHint is null || MacShadowBox is null || FormatBox is null) return;
+        bool shadowOn = MacShadowBox.IsChecked == true;
+        bool formatKeepsAlpha = (ImageFormat)FormatBox.SelectedIndex is ImageFormat.Png or ImageFormat.WebP;
+        MacShadowHint.Visibility = shadowOn && !formatKeepsAlpha ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void LoadOutputTab()
@@ -161,6 +328,7 @@ public partial class SettingsWindow : Window
         WebPQualitySlider.Value = output.WebPQuality;
         JpgQualityValue.Text = output.JpgQuality.ToString(CultureInfo.InvariantCulture);
         WebPQualityValue.Text = output.WebPQuality.ToString(CultureInfo.InvariantCulture);
+        UpdateQualityRowVisibility(); // show only the quality slider that applies to the chosen format
         TemplateBox.Text = output.FileNameTemplate;
         AutoSaveBox.IsChecked = output.AutoSave;
         AutoCopyBox.IsChecked = output.AutoCopy;
@@ -169,6 +337,70 @@ public partial class SettingsWindow : Window
     }
 
     private void LoadEffectsTab() => ApplyEffectsBox.IsChecked = _settings.Current.Output.ApplyEffectsOnExport;
+
+    // ---- OCR ----
+
+    private bool _ocrDownloading;
+
+    private void LoadOcrTab()
+    {
+        OcrAccuracyBox.SelectedIndex = _settings.Current.Ocr.Accuracy == OcrAccuracy.Accurate ? 1 : 0;
+        OcrAutoCopyBox.IsChecked = _settings.Current.Ocr.CopyAfterRecognize;
+        RefreshOcrModelStatus();
+    }
+
+    /// <summary>Accurate-model row: installed → status text only; missing → warning color plus the
+    /// download button. Both strings are localized, so a live language switch re-runs this.</summary>
+    private void RefreshOcrModelStatus()
+    {
+        bool installed = OcrModelDownloader.AllModelsPresent();
+        OcrModelStatus.Text = L.Get(installed ? "Settings.Ocr.Installed" : "Settings.Ocr.NotInstalled");
+        OcrModelStatus.SetResourceReference(TextBlock.ForegroundProperty,
+            installed ? "TextFillColorSecondaryBrush" : "SystemFillColorCautionBrush");
+        OcrDownloadButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
+        OcrDownloadButton.IsEnabled = !installed && !_ocrDownloading;
+    }
+
+    private void OnOcrAccuracyChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        // Picking "accurate" while its models are absent is legal (recognition falls back to the
+        // fast tier), but the status row should say why nothing changed yet.
+        if (OcrAccuracyBox.SelectedIndex == 1 && !OcrModelDownloader.AllModelsPresent())
+        {
+            OcrModelStatus.Text = L.Get("Settings.Ocr.NotInstalled");
+            OcrModelStatus.SetResourceReference(TextBlock.ForegroundProperty, "SystemFillColorCautionBrush");
+        }
+    }
+
+    private async void OnDownloadOcrModels(object sender, RoutedEventArgs e)
+    {
+        if (_ocrDownloading) return;
+        _ocrDownloading = true;
+        OcrDownloadButton.IsEnabled = false;
+        var progress = new Progress<double>(fraction =>
+            OcrDownloadButton.Content = L.Get("Settings.Ocr.Downloading", fraction * 100));
+        bool completed = false;
+        try
+        {
+            await OcrModelDownloader.DownloadAsync(progress);
+            completed = true;
+            Log.Info("Accurate OCR models downloaded.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Downloading the accurate OCR models failed", ex);
+            OcrModelStatus.Text = L.Get("Settings.Ocr.DownloadFailed", ex.Message);
+            OcrModelStatus.SetResourceReference(TextBlock.ForegroundProperty, "SystemFillColorCriticalBrush");
+        }
+        finally
+        {
+            _ocrDownloading = false;
+            OcrDownloadButton.Content = L.Get("Settings.Ocr.Download");
+            if (completed) RefreshOcrModelStatus();
+            else OcrDownloadButton.IsEnabled = true; // a retry must be possible right away
+        }
+    }
 
     private void RefreshAboutTexts()
     {
@@ -272,6 +504,23 @@ public partial class SettingsWindow : Window
         WebPQualityValue.Text = ((int)WebPQualitySlider.Value).ToString(CultureInfo.InvariantCulture);
     }
 
+    private void OnFormatChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateQualityRowVisibility();
+        UpdateMacShadowHint(); // the shadow-format warning depends on the chosen format
+    }
+
+    /// <summary>Shows only the quality control the chosen format uses. PNG is lossless and has no
+    /// quality knob, so both sliders hide; JPG and WebP each show their own.</summary>
+    private void UpdateQualityRowVisibility()
+    {
+        // May fire from FormatBox.SelectionChanged before the whole tree is built.
+        if (JpgQualityCard is null || WebPQualityCard is null) return;
+        var format = (ImageFormat)FormatBox.SelectedIndex;
+        JpgQualityCard.Visibility = format == ImageFormat.Jpg ? Visibility.Visible : Visibility.Collapsed;
+        WebPQualityCard.Visibility = format == ImageFormat.WebP ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void OnBrowseSaveDir(object sender, RoutedEventArgs e)
     {
         try
@@ -300,6 +549,38 @@ public partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>Hidden "easter egg": five clicks on the About nav item reveal the Debug category.
+    /// Runs on PreviewMouseLeftButtonDown so it counts even though clicking also selects the item;
+    /// once unlocked the counter stops and the item stays revealed for the window's lifetime.</summary>
+    private void OnAboutNavClicked(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (NavDebugItem.Visibility == Visibility.Visible) return; // already unlocked
+        if (++_debugUnlockClicks < DebugUnlockClickCount) return;
+        NavDebugItem.Visibility = Visibility.Visible;
+        _notifyConflict?.Invoke(L.Get("Settings.Debug.Unlocked"));
+        Log.Info("Hidden debug category unlocked in settings.");
+    }
+
+    /// <summary>Debug category: opens the OOBE welcome window to preview its entrance animation,
+    /// without touching the OobeCompleted flag.</summary>
+    private void OnPreviewOobeClick(object sender, RoutedEventArgs e) => _onPreviewOobe?.Invoke();
+
+    /// <summary>Clears the OOBE-completed flag so the welcome animation replays on the next app start.</summary>
+    private void OnResetOobeClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _settings.Current.OobeCompleted = false;
+            _settings.Save();
+            _notifyConflict?.Invoke(L.Get("Settings.ResetOobe.Done"));
+            Log.Info("OOBE reset from settings; welcome screen will replay on next launch.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Resetting the OOBE flag from settings failed", ex);
+        }
+    }
+
     private void OnOk(object sender, RoutedEventArgs e) => Close();
 
     private void OnLanguageChanged(object? sender, EventArgs e)
@@ -307,10 +588,15 @@ public partial class SettingsWindow : Window
         foreach (var action in HotkeyActions.All)
         {
             if (_actionLabels.TryGetValue(action, out var label)) label.Text = L.Get($"Mode.{action}");
-            if (_recorders.TryGetValue(action, out var recorder)) recorder.Refresh();
-            if (_conflictMarks.TryGetValue(action, out var mark)) mark.Text = L.Get("Settings.Conflict");
+            RefreshHotkeyRow(action); // placeholder text is localized; chips content is language-neutral
+            if (_conflictMarks.TryGetValue(action, out var mark)) mark.ToolTip = L.Get("Settings.Conflict");
         }
         RefreshAboutTexts();
+        // These two hints are set imperatively at load time; without refreshing them here they keep
+        // the previous language after a live switch (tray menu) until the window reopens.
+        CapturePriorityHint.Text = L.Get(ElevationService.IsElevated ? "Settings.CapturePriorityHint" : "Settings.CapturePriorityHintNormal");
+        SaveDirHint.Text = string.Format(L.Get("Settings.SaveDirDefault"), AppPaths.DefaultSaveDir);
+        if (!_ocrDownloading) RefreshOcrModelStatus();
         // The language may have been changed elsewhere (e.g. tray menu) while this window is open;
         // without this sync, OK would write the stale combo value back and revert that choice.
         _syncingLanguage = true;
@@ -365,12 +651,17 @@ public partial class SettingsWindow : Window
         };
         s.StartWithWindows = StartWithWindowsBox.IsChecked == true;
         s.Hotkeys.Bindings = _editedBindings;
-        s.Capture.DelaySeconds = ParseInt(DelayBox.Text, s.Capture.DelaySeconds, 1, 60);
+        s.Capture.DelaySeconds = ClampValue(DelayBox.Value, s.Capture.DelaySeconds, 1, 60);
+        s.Capture.AutoElementDetection = AutoDetectBox.IsChecked == true;
         s.Capture.ShowMagnifier = ShowMagnifierBox.IsChecked == true;
         s.Capture.CaptureCursor = CaptureCursorBox.IsChecked == true;
         s.Capture.WindowTransparentCorners = TransparentCornersBox.IsChecked == true;
         s.Capture.MacStyleWindowShadow = MacShadowBox.IsChecked == true;
-        s.HistoryMaxCount = ParseInt(HistoryMaxBox.Text, s.HistoryMaxCount, 0, 5000);
+        // Only persist the priority toggle when elevated: when normal the checkbox is hidden and the
+        // row shows the "run as admin" button instead, so its (unchecked) state must not clobber the
+        // stored preference.
+        if (ElevationService.IsElevated) s.Capture.CapturePriority = CapturePriorityBox.IsChecked == true;
+        s.HistoryMaxCount = ClampValue(HistoryMaxBox.Value, s.HistoryMaxCount, 0, 5000);
         s.Output.SaveDirectory = SaveDirBox.Text.Trim();
         s.Output.Format = Enum.IsDefined((ImageFormat)FormatBox.SelectedIndex)
             ? (ImageFormat)FormatBox.SelectedIndex : s.Output.Format;
@@ -384,11 +675,15 @@ public partial class SettingsWindow : Window
         s.Output.AfterOtherCapture = Enum.IsDefined((AfterCaptureAction)AfterOtherBox.SelectedIndex)
             ? (AfterCaptureAction)AfterOtherBox.SelectedIndex : s.Output.AfterOtherCapture;
         s.Output.ApplyEffectsOnExport = ApplyEffectsBox.IsChecked == true;
+        s.Ocr.Accuracy = OcrAccuracyBox.SelectedIndex == 1 ? OcrAccuracy.Accurate : OcrAccuracy.Fast;
+        s.Ocr.CopyAfterRecognize = OcrAutoCopyBox.IsChecked == true;
     }
 
-    private static int ParseInt(string? text, int fallback, int min, int max)
+    /// <summary>Clamps a NumberBox value (null when the box is empty) into range, falling back to the
+    /// stored value when unset.</summary>
+    private static int ClampValue(double? value, int fallback, int min, int max)
     {
-        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var value)) return fallback;
-        return Math.Clamp(value, min, max);
+        if (value is not { } v || double.IsNaN(v)) return fallback;
+        return Math.Clamp((int)Math.Round(v), min, max);
     }
 }

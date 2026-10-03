@@ -1,3 +1,5 @@
+> **状态更新（2026-10-01）：Windows 11 原生标题栏对齐重构（`.omo/plans/titlebar-win11-native.md`，T1–T13）已实现：标题栏 32 DIP、模板化 CaptionButton、Snap Layouts（HTMAXBUTTON）、最大化外扩修复、探针与 fixtures 更新。文档同步：KNOWN_ISSUES.md 新增本改造小节；README.md 未提及标题栏故未动。以下 2026-09-27 记录为历史交接，保留。**
+>
 > **状态更新（2026-09-27）：T4–T10 已全部完成并逐任务提交（d9cc2b6 → 797d0dd → f1167e0 → db03609 → ce53b13 → 2002f5a + T10 收尾提交）。README.md / KNOWN_ISSUES.md / publish\ 均已就绪，等待用户真机测试。以下为过程交接记录。**
 
 # HANDOFF — Modern-ScreenShot（交接文档）
