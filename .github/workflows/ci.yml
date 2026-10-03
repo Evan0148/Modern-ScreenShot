@@ -104,7 +104,9 @@ jobs:
           # base = nearest v* tag without the v ("0.0.0" before the first tag), N = the workflow's
           # global run number (monotonic per push, stable across re-runs of one commit).
           $describe = git describe --tags --match "v*" 2>$null
-          $base = if ($LASTEXITCODE -eq 0 -and $describe) { $describe -replace '^v','' -replace '-\d+-g[0-9a-f]+$','' } else { "0.0.0" }
+          $described = $LASTEXITCODE -eq 0 -and $describe
+          $global:LASTEXITCODE = 0 # no tag yet is the expected path; the runner fails a pwsh step on a leftover nonzero LASTEXITCODE
+          $base = if ($described) { $describe -replace '^v','' -replace '-\d+-g[0-9a-f]+$','' } else { "0.0.0" }
           $version = "$base-dev.$env:GITHUB_RUN_NUMBER+g$($env:GITHUB_SHA.Substring(0, 7))"
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "version: $version"
