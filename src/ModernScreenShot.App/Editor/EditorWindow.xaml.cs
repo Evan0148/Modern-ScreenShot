@@ -35,6 +35,16 @@ public partial class EditorWindow : Window
     private readonly Func<PixelBuffer, Window>? _pinFactory;
     private readonly OcrService? _ocr;
     private readonly Dictionary<EditorTool, RadioButton> _toolButtons = [];
+
+    // Merged "几何" entry: the four geometry tools share one radio button; a click activates the
+    // last-used shape, a ~400ms press opens the shape/variant flyout (see GeometryShapeMenu).
+    private RadioButton _geometryButton = null!;
+    private EditorTool _lastGeometryTool = EditorTool.Rect;
+    private Popup? _geometryPopup;
+    private GeometryShapeMenu? _geometryMenu;
+    private readonly DispatcherTimer _geometryHoldTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private bool _geometryHoldFired;
+
     private readonly List<Button> _swatches = [];
     private readonly Dictionary<Button, string> _swatchHex = [];
     private AnnotationCanvas _canvas = null!;
@@ -199,6 +209,8 @@ public partial class EditorWindow : Window
             (EditorTool.Magnifier, "Tool.Magnifier"), (EditorTool.Crop, "Tool.Crop"), (EditorTool.Eraser, "Tool.Eraser"),
         })
         {
+            if (tool == EditorTool.Rect) AddGeometryButton(panel); // the merged 几何 entry sits where Rect used to
+            if (GeometryTools.IsGeometry(tool)) continue;
             var rb = new RadioButton
             {
                 GroupName = "editorTools",
@@ -227,6 +239,97 @@ public partial class EditorWindow : Window
         panel.Children.Add(_backButton);
 
         ToolbarHost.Child = panel;
+    }
+
+    /// <summary>The merged geometry entry: all four shape tools map to this one radio button (so
+    /// hotkey sync and the active highlight work unchanged), the icon shows the last-used shape,
+    /// a click re-activates it, and holding ~400ms opens the shape/variant flyout as a Popup.</summary>
+    private void AddGeometryButton(WrapPanel panel)
+    {
+        _lastGeometryTool = GeometryTools.Parse(_settings.Current.Editor.GeometryTool);
+        _geometryButton = new RadioButton
+        {
+            GroupName = "editorTools",
+            Style = ToolToggleStyle(),
+            Content = EditorIcons.For(_lastGeometryTool),
+            ToolTip = L.Get("Tool.Geometry"),
+        };
+        _geometryButton.Checked += (_, _) =>
+        {
+            _canvas.Tool = _lastGeometryTool;
+            if (_ready) UpdatePropertyPanel();
+            RefreshSelectionButtons();
+        };
+        _geometryButton.PreviewMouseLeftButtonDown += (_, _) =>
+        {
+            _geometryHoldFired = false;
+            _geometryHoldTimer.Stop();
+            _geometryHoldTimer.Start();
+        };
+        _geometryButton.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            _geometryHoldTimer.Stop();
+            bool fired = _geometryHoldFired;
+            _geometryHoldFired = false;
+            _geometryButton.ReleaseMouseCapture();
+            if (fired) e.Handled = true; // the hold already opened the flyout
+        };
+        _geometryButton.MouseLeave += (_, _) => { if (!_geometryHoldFired) _geometryHoldTimer.Stop(); };
+        _geometryHoldTimer.Tick += (_, _) =>
+        {
+            _geometryHoldTimer.Stop();
+            _geometryHoldFired = true;
+            _geometryButton.ReleaseMouseCapture();
+            OpenGeometryMenu();
+        };
+        panel.Children.Add(_geometryButton);
+        foreach (var tool in GeometryTools.All) _toolButtons[tool] = _geometryButton;
+    }
+
+    /// <summary>Lazily builds the shape/variant flyout and shows it under the geometry button.</summary>
+    private void OpenGeometryMenu()
+    {
+        if (_geometryPopup is null)
+        {
+            _geometryMenu = new GeometryShapeMenu(
+                () => GeometryTools.IsGeometry(_canvas.Tool) ? _canvas.Tool : _lastGeometryTool,
+                tool => GeometryTools.UsesDash(tool) ? _canvas.DashedLine : _canvas.FillShape,
+                SetTool,
+                (tool, value) =>
+                {
+                    if (GeometryTools.UsesDash(tool))
+                        ApplyInstant(() => _canvas.DashedLine = value, item => { if (item is LineItem l) l.Dashed = value; });
+                    else
+                        ApplyInstant(() => _canvas.FillShape = value, item =>
+                        {
+                            switch (item)
+                            {
+                                case RectItem r:
+                                    r.Filled = value;
+                                    if (value) r.FillColor = AnnotationCanvas.FillColorFor(r.StrokeColor);
+                                    break;
+                                case EllipseItem ellipse:
+                                    ellipse.Filled = value;
+                                    if (value) ellipse.FillColor = AnnotationCanvas.FillColorFor(ellipse.StrokeColor);
+                                    break;
+                            }
+                        });
+                    SetTool(tool);
+                    UpdatePropertyPanel(); // re-sync the fill/dashed checkboxes
+                });
+            _geometryMenu.CloseRequested += (_, _) => _geometryPopup!.IsOpen = false;
+            _geometryPopup = new Popup
+            {
+                PlacementTarget = _geometryButton,
+                Placement = PlacementMode.Bottom,
+                StaysOpen = false, // any outside click dismisses it
+                AllowsTransparency = true,
+                PopupAnimation = PopupAnimation.Fade,
+                Child = _geometryMenu,
+            };
+        }
+        _geometryMenu!.Refresh();
+        _geometryPopup!.IsOpen = true;
     }
 
     // A plain 1×22 rule. The Separator control's default template paints a horizontal 1px line,
@@ -1237,6 +1340,12 @@ public partial class EditorWindow : Window
         switch (e.Key)
         {
             case Key.Escape:
+                if (_geometryPopup is { } popup && popup.IsOpen)
+                {
+                    popup.IsOpen = false; // the flyout swallows the first Esc
+                    e.Handled = true;
+                    return;
+                }
                 CloseTextOverlay(commit: false);
                 _canvas.AbortInteraction();
                 e.Handled = true;
@@ -1291,6 +1400,21 @@ public partial class EditorWindow : Window
 
     private void SetTool(EditorTool tool)
     {
+        if (GeometryTools.IsGeometry(tool))
+        {
+            // Hotkey/menu path: the picked shape becomes the last-used one, so the merged button's
+            // Checked handler (fired just below) activates exactly this tool. When the merged radio
+            // is already checked, Checked will NOT refire — apply the tool directly.
+            _lastGeometryTool = tool;
+            _settings.Current.Editor.GeometryTool = tool.ToString();
+            _geometryButton.Content = EditorIcons.For(tool);
+            if (_geometryButton.IsChecked == true)
+            {
+                _canvas.Tool = tool;
+                if (_ready) UpdatePropertyPanel();
+                RefreshSelectionButtons();
+            }
+        }
         if (_toolButtons.TryGetValue(tool, out var rb)) rb.IsChecked = true;
     }
 
@@ -1345,6 +1469,7 @@ public partial class EditorWindow : Window
             _settings.Current.Effects = _canvas.Document.Effects.Clone();
         // Remember the last-used annotation tool options as well (mirrors the overlay options bar).
         var ed = _settings.Current.Editor;
+        ed.GeometryTool = _lastGeometryTool.ToString();
         ed.StrokeColor = _canvas.StrokeColor;
         ed.StrokeThickness = _canvas.StrokeThickness;
         ed.FontSize = _canvas.FontSize;

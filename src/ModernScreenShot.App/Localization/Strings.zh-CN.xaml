@@ -89,6 +89,7 @@
     <sys:String x:Key="Tool.Ellipse">椭圆 (E)</sys:String>
     <sys:String x:Key="Tool.Line">直线 (L)</sys:String>
     <sys:String x:Key="Tool.Arrow">箭头 (A)</sys:String>
+    <sys:String x:Key="Tool.Geometry">几何 (R/E/L/A，长按选形状)</sys:String>
     <sys:String x:Key="Tool.Pen">画笔 (P)</sys:String>
     <sys:String x:Key="Tool.Text">文字 (T)</sys:String>
     <sys:String x:Key="Tool.Step">序号 (N)</sys:String>
@@ -104,6 +105,8 @@
     <sys:String x:Key="Prop.Color">颜色</sys:String>
     <sys:String x:Key="Prop.Thickness">粗细</sys:String>
     <sys:String x:Key="Prop.Fill">填充</sys:String>
+    <sys:String x:Key="Prop.Stroke">描边</sys:String>
+    <sys:String x:Key="Prop.Solid">实线</sys:String>
     <sys:String x:Key="Prop.FontSize">字号</sys:String>
     <sys:String x:Key="Prop.Opacity">不透明度</sys:String>
     <sys:String x:Key="Prop.Strength">强度</sys:String>
@@ -282,7 +285,7 @@
     <sys:String x:Key="Overlay.HelpRefresh">重新截取当前屏幕</sys:String>
     <sys:String x:Key="Overlay.HelpCursorToggle">显示 / 隐藏 鼠标指针</sys:String>
     <sys:String x:Key="Overlay.HelpCopyColor">复制光标处颜色</sys:String>
-    <sys:String x:Key="Overlay.HelpTools">标注工具（选区内）：V 选择 · R 矩形 · E 椭圆 · L 直线 · A 箭头 · P 画笔 · H 荧光笔 · T 文字 · N 序号 · M 马赛克 · X 橡皮擦</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">标注工具（选区内）：V 选择 · R 矩形 · E 椭圆 · L 直线 · A 箭头 · P 画笔 · H 荧光笔 · T 文字 · N 序号 · M 马赛克 · X 橡皮擦（长按「几何」可切换形状与样式）</sys:String>
     <sys:String x:Key="Overlay.HelpClose">F1 显示 / 隐藏 · 点击任意处 关闭</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionElements">检测界面元素</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionWindows">检测窗口</sys:String>

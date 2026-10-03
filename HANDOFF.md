@@ -88,6 +88,7 @@
 
 ### T5 编辑器
 - `Editor/EditorWindow`（WPF-UI Fluent）：顶部工具栏、右侧属性面板、底部动作。快捷键见计划（V/R/E/L/A/P/T/N/H/M/B/S/G/C、Ctrl+Z/Y、Del、Ctrl+C/S/P）。
+- `Editor/GeometryMenu`（共享）：「几何」合并工具的二级/三级飞出菜单（形状列 + 样式变体列），overlay 与编辑器共用；矩形/椭圆/直线/箭头映射到同一按钮，长按 ~400ms 弹出，`EditorSettings.GeometryTool` 持久化上次形状。
 - `Editor/Canvas/AnnotationCanvas`：缩放（Ctrl+滚轮、适应、100%）/平移（空格+拖/中键）、把 `AnnotationItem` 渲染成 WPF 形状、命中测试、8 手柄选中移动缩放、双击文字编辑、置顶置底。
 - `RenderFlattened()`：原图 + 标注 + Crop → `RenderTargetBitmap`(96DPI 1:1) → `PixelBuffer`，再走 Core `EffectPipeline`。
 - Mosaic/Blur/Spotlight/Magnifier 预览直接调用 Core `Mosaic` / 遮罩合成；每步变更 `UndoStack.Push`。
