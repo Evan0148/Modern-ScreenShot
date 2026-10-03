@@ -404,8 +404,7 @@ public partial class SettingsWindow : Window
 
     private void RefreshAboutTexts()
     {
-        var version = typeof(App).Assembly.GetName().Version;
-        VersionText.Text = L.Get("Settings.Version", version is null ? "?" : version.ToString(3));
+        VersionText.Text = L.Get("Settings.Version", Services.AppVersion.Display);
         SettingsPathText.Text = L.Get("Settings.SettingsPath", _settings.FilePath);
     }
 

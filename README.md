@@ -6,7 +6,7 @@
 
 ## 构建与 CI
 
-用 Visual Studio 或命令行 `dotnet build ModernScreenShot.sln -c Release`（.NET 10 SDK，仅 Windows）。**每次推送（任意分支）**都会执行与本地相同的四道门禁：Release 构建、harness 算法测试（core + 离线 OCR，模型已随仓库）、中英文键数对齐检查、`--smoke`（解析全部服务并离屏实例化各窗口）；通过后自动把一份 self-contained win-x64 zip（解压即用）以 **Draft release**（`dev-<短SHA>`）挂到 [Releases](https://github.com/Evan0148/Modern-ScreenShot/releases) 页——Draft 不占版本号，要发正式版时打个 `v*` 标签推送即可。
+用 Visual Studio 或命令行 `dotnet build ModernScreenShot.sln -c Release`（.NET 10 SDK，仅 Windows）。**每次推送（任意分支）**都会执行与本地相同的四道门禁：Release 构建、harness 算法测试（core + 离线 OCR，模型已随仓库）、中英文键数对齐检查、`--smoke`（解析全部服务并离屏实例化各窗口）；通过后自动把一份 self-contained win-x64 zip（解压即用）以 **Draft release** 挂到 [Releases](https://github.com/Evan0148/Modern-ScreenShot/releases) 页，命名规则见 [Agent.md](Agent.md)：开发版 = `<最近v*标签或0.0.0>-dev.<构建号>+g<短SHA>`（如 `0.0.0-dev.12+gc795cdc`，同一 commit 恒定），版本号同时烙进二进制（设置→关于、启动日志可见）；要发正式版时打个 `v*` 标签推送即可（SemVer：破坏性/功能/修复）。
 
 ## 功能
 

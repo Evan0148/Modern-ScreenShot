@@ -87,17 +87,34 @@ jobs:
     permissions:
       contents: write # create/replace the draft release
     steps:
+      # Full history: the version base comes from `git describe` over the v* tags (Agent.md).
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET SDK 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
-      # Self-contained so the zip runs without the .NET Desktop Runtime installed.
+      - name: Compute version
+        shell: pwsh
+        run: |
+          # base = nearest v* tag without the v ("0.0.0" before the first tag), N = the workflow's
+          # global run number (monotonic per push, stable across re-runs of one commit).
+          $describe = git describe --tags --match "v*" 2>$null
+          $base = if ($LASTEXITCODE -eq 0 -and $describe) { $describe -replace '^v','' -replace '-\d+-g[0-9a-f]+$','' } else { "0.0.0" }
+          $version = "$base-dev.$env:GITHUB_RUN_NUMBER+g$($env:GITHUB_SHA.Substring(0, 7))"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "version: $version"
+
+      # Self-contained so the zip runs without the .NET Desktop Runtime installed; the version
+      # is stamped into the assembly (shown in About / the startup log via AppVersion.Display).
+      # IncludeSourceRevisionInInformationalVersion=false: the SDK would otherwise append the
+      # full commit SHA after our value, which already carries the short SHA.
       - name: Publish self-contained win-x64
-        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -r win-x64 --self-contained true -o "${{ github.workspace }}/publish"
+        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -r win-x64 --self-contained true "-p:InformationalVersion=$env:VERSION" -p:IncludeSourceRevisionInInformationalVersion=false -o "${{ github.workspace }}/publish"
 
       - name: Attach draft release
         shell: pwsh
@@ -113,11 +130,10 @@ jobs:
             $existing = gh release view $tag --json isDraft | ConvertFrom-Json
             if ($existing.isDraft) { gh release delete $tag --yes }
           }
-          $zip = "ModernScreenShot-dev-$sha-win-x64.zip"
+          $zip = "ModernScreenShot-$($env:VERSION -replace '\+', '-')-win-x64.zip" # '+' is unwieldy in download URLs
           Compress-Archive -Path publish/* -DestinationPath $zip -Force
-          $subject = git log -1 --pretty=%s
-          $notes = "自动构建 commit $env:GITHUB_SHA（$env:GITHUB_REF_NAME 分支）：$subject`n`nself-contained，解压即用，无需安装 .NET 运行时。这是 Draft，仅供下载测试；要发正式版请打 v* 标签。"
-          gh release create $tag $zip --draft --target $env:GITHUB_SHA --title "Dev build $sha" --notes $notes
+          $notes = "版本号 $env:VERSION（base-dev.构建号+commit，规则见 Agent.md）。`n`nself-contained，解压即用，无需安装 .NET 运行时。这是 Draft，仅供下载测试；要发正式版请打 v* 标签。"
+          gh release create $tag $zip --draft --target $env:GITHUB_SHA --title "Dev $env:VERSION" --notes $notes
 
   release:
     name: Release (tag v*)
@@ -136,8 +152,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The tag itself is the version (v0.1.0 → 0.1.0), stamped into the assembly.
       - name: Publish self-contained win-x64
-        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -r win-x64 --self-contained true -o "${{ github.workspace }}/publish"
+        shell: pwsh
+        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -r win-x64 --self-contained true "-p:InformationalVersion=$($env:GITHUB_REF_NAME -replace '^v','')" -p:IncludeSourceRevisionInInformationalVersion=false -o "${{ github.workspace }}/publish"
 
       - name: Zip
         shell: pwsh

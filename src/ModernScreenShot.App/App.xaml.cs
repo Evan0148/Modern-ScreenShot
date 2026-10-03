@@ -31,7 +31,7 @@ public partial class App : Application
         StartupArgs = e.Args;
         HookGlobalExceptionHandlers();
         bool smoke = e.Args.Any(a => string.Equals(a, "--smoke", StringComparison.OrdinalIgnoreCase));
-        Log.Info($"Starting {(smoke ? "smoke test" : "app")} v{typeof(App).Assembly.GetName().Version} args=[{string.Join(' ', e.Args)}]");
+        Log.Info($"Starting {(smoke ? "smoke test" : "app")} v{AppVersion.Display} args=[{string.Join(' ', e.Args)}]");
 
         try
         {
