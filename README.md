@@ -2,6 +2,12 @@
 
 简洁现代的 Windows 截图工具。区域/窗口/滚动长截图，内置标注编辑器、效果合成（阴影/倒影/圆角卡片）、贴图与历史记录，托盘常驻 + 全局热键，内置离线 OCR 文字识别。
 
+[![CI](https://github.com/Evan0148/Modern-ScreenShot/actions/workflows/ci.yml/badge.svg)](https://github.com/Evan0148/Modern-ScreenShot/actions/workflows/ci.yml)
+
+## 构建与 CI
+
+用 Visual Studio 或命令行 `dotnet build ModernScreenShot.sln -c Release`（.NET 10 SDK，仅 Windows）。推送 / PR 时 GitHub Actions 自动执行与本地相同的四道门禁：Release 构建、harness 算法测试（core + 离线 OCR，模型已随仓库）、中英文键数对齐检查、`--smoke`（解析全部服务并离屏实例化各窗口），并产出 win-x64 产物；推送 `v*` 标签会额外发布自包含 zip 到 GitHub Releases。
+
 ## 功能
 
 ### 截图模式（托盘左键 = 区域截图；右键菜单含全部模式）

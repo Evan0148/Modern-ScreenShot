@@ -1,5 +1,7 @@
 > **状态更新（2026-10-01）：Windows 11 原生标题栏对齐重构（`.omo/plans/titlebar-win11-native.md`，T1–T13）已实现：标题栏 32 DIP、模板化 CaptionButton、Snap Layouts（HTMAXBUTTON）、最大化外扩修复、探针与 fixtures 更新。文档同步：KNOWN_ISSUES.md 新增本改造小节；README.md 未提及标题栏故未动。以下 2026-09-27 记录为历史交接，保留。**
 >
+> **状态更新（2026-10-03）：新增 GitHub Actions CI（`.github/workflows/ci.yml`，windows-latest）。门禁 = Release build → harness `core` → harness `ocr`（随仓库 bundle 模型，不下载 server 档）→ `tools/check-i18n.ps1` → `--smoke`（Start-Process + 180s 显式 kill 防挂死）→ publish 框架依赖 win-x64 上传 artifact；推 `v*` 标签额外跑 `release` job：self-contained win-x64（~278MB，含 runtime+ONNX+模型）打包 zip 后 `gh release create --generate-notes`。app.manifest 为 asInvoker，CI 无 UAC 阻塞。全部命令已在本机 Release 模式逐条验证（build 0/0、harness ALL PASS、i18n 344=344、smoke exit 0、两种 publish 产物完整）。**
+
 > **状态更新（2026-09-27）：T4–T10 已全部完成并逐任务提交（d9cc2b6 → 797d0dd → f1167e0 → db03609 → ce53b13 → 2002f5a + T10 收尾提交）。README.md / KNOWN_ISSUES.md / publish\ 均已就绪，等待用户真机测试。以下为过程交接记录。**
 
 # HANDOFF — Modern-ScreenShot（交接文档）

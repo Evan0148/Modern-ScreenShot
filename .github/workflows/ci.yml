@@ -1,0 +1,109 @@
+# CI for the WPF screenshot tool: build the solution, run the same quality gates the project
+# uses locally (harness algorithm tests, offline OCR with the bundled model, i18n key parity,
+# --smoke service/window instantiation), publish a zip artifact, and attach a zip to GitHub
+# Releases when a v* tag is pushed. WPF + Windows-only APIs → windows-latest runner.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CONFIG: Release
+  EXE_DIR: src/ModernScreenShot.App/bin/Release/net10.0-windows/win-x64
+
+jobs:
+  build-test:
+    name: Build & gates (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ModernScreenShot.sln
+
+      - name: Build (Release)
+        run: dotnet build ModernScreenShot.sln -c $env:CONFIG --no-restore
+
+      - name: Harness — core algorithm tests
+        run: dotnet run --project tools/Harness -c $env:CONFIG --no-build -- core
+
+      - name: Harness — offline OCR (bundled fast model, no download)
+        run: dotnet run --project tools/Harness -c $env:CONFIG --no-build -- ocr
+
+      - name: Localization key parity (zh-CN vs en-US)
+        shell: pwsh
+        run: tools/check-i18n.ps1
+
+      - name: App smoke test
+        shell: pwsh
+        run: |
+          # --smoke resolves every DI singleton and instantiates the editor/history/settings/
+          # countdown/OOBE/OCR/pin windows off-screen, then exits 0/1. Guard with an explicit
+          # 3-minute kill so a hung window can never burn the whole job timeout.
+          $p = Start-Process -FilePath "$env:EXE_DIR/ModernScreenShot.App.exe" -ArgumentList "--smoke" -PassThru
+          if (-not $p.WaitForExit(180000)) {
+            $p.Kill($true)
+            Write-Host "::error::smoke test hung and was killed after 180 s"
+            exit 1
+          }
+          Write-Host "smoke exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+
+      - name: Publish (framework-dependent win-x64)
+        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -o "${{ github.workspace }}/publish"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModernScreenShot-win-x64
+          path: publish/
+          if-no-files-found: error
+
+  release:
+    name: Release (tag v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and upload the zip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Self-contained so users don't need the .NET Desktop Runtime installed.
+      - name: Publish self-contained win-x64
+        run: dotnet publish src/ModernScreenShot.App -c $env:CONFIG -r win-x64 --self-contained true -o "${{ github.workspace }}/publish"
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath "${{ github.workspace }}/ModernScreenShot-${{ github.ref_name }}-win-x64.zip"
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" "ModernScreenShot-$env:GITHUB_REF_NAME-win-x64.zip" --generate-notes --title "$env:GITHUB_REF_NAME"
