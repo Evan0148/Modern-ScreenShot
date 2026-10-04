@@ -160,7 +160,7 @@ Max Concurrent: 5（Wave 2）
 
 > Implementation + Verification = ONE Task. EVERY task has QA Scenarios.
 
-- [ ] 1. 共享 ToastWindow 组件（新文件）
+- [x] 1. 共享 ToastWindow 组件（新文件）
 
   **What to do**:
   - 新建 `src/ModernScreenShot.App/Output/ToastWindow.cs`：从 `PinWindow.ShowToast`（PinWindow.cs:428-489）提取模式为独立共享组件
@@ -236,7 +236,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/Output/ToastWindow.cs`
   - Pre-commit: `dotnet build ModernScreenShot.sln -c Release`
 
-- [ ] 2. 本地化新键（双语 + check-i18n）
+- [x] 2. 本地化新键（双语 + check-i18n）
 
   **What to do**:
   - 在 `Strings.zh-CN.xaml` 与 `Strings.en-US.xaml` 同步新增键（两个文件同一 commit）：
@@ -300,7 +300,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/Localization/Strings.zh-CN.xaml`, `src/ModernScreenShot.App/Localization/Strings.en-US.xaml`
   - Pre-commit: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-i18n.ps1`
 
-- [ ] 3. TranslationFlow 改造：EnsureModelAsync 可取消 + 结果可区分 + OCE 过滤
+- [x] 3. TranslationFlow 改造：EnsureModelAsync 可取消 + 结果可区分 + OCE 过滤
 
   **What to do**:
   - 修改 `src/ModernScreenShot.App/Translation/TranslationFlow.cs`：
@@ -375,7 +375,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/Translation/TranslationFlow.cs`（+ 4 个调用点的最小机械适配）
   - Pre-commit: `dotnet build ModernScreenShot.sln -c Release` 且 `--translate-test` exit 0
 
-- [ ] 4. 截图路径翻译 toast 接线（App.Translation.cs）
+- [x] 4. 截图路径翻译 toast 接线（App.Translation.cs）
 
   **What to do**:
   - 修改 `src/ModernScreenShot.App/App.Translation.cs`：
@@ -467,7 +467,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/App.Translation.cs`
   - Pre-commit: `dotnet build` + `--translate-test` exit 0
 
-- [ ] 5. 截图路径 OCR toast 接线（App.Ocr.cs）
+- [x] 5. 截图路径 OCR toast 接线（App.Ocr.cs）
 
   **What to do**:
   - 修改 `src/ModernScreenShot.App/App.Ocr.cs` 的 `RunOcrCapture`（:29-52）：
@@ -531,7 +531,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/App.Ocr.cs`（+ 可能的 `App.Toast.cs`）
   - Pre-commit: `dotnet build ModernScreenShot.sln -c Release`
 
-- [ ] 6. 编辑器翻译按钮变取消（EditorWindow.xaml.cs）
+- [x] 6. 编辑器翻译按钮变取消（EditorWindow.xaml.cs）
 
   **What to do**:
   - 修改 `src/ModernScreenShot.App/Editor/EditorWindow.xaml.cs` 的 `RunTranslate`（:1225-1271）与 `SwapInEditorAsync`（:1276+）：
@@ -600,7 +600,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/Editor/EditorWindow.xaml.cs`
   - Pre-commit: `dotnet build` + `--translate-test` exit 0
 
-- [ ] 7. Swap 按钮防重入 + 忙碌状态（TranslationResultWindow.xaml.cs）
+- [x] 7. Swap 按钮防重入 + 忙碌状态（TranslationResultWindow.xaml.cs）
 
   **What to do**:
   - 修改 `src/ModernScreenShot.App/Translation/TranslationResultWindow.xaml.cs` 的 `OnSwapClick`（:80 附近）：
@@ -665,7 +665,7 @@ Max Concurrent: 5（Wave 2）
   - Files: `src/ModernScreenShot.App/Translation/TranslationResultWindow.xaml.cs`
   - Pre-commit: `dotnet build ModernScreenShot.sln -c Release`
 
-- [ ] 8. 诊断探针 --render-translate-toast
+- [x] 8. 诊断探针 --render-translate-toast
 
   **What to do**:
   - 按 house 诊断模式（现有渲染探针分派在 `App.Features.cs`：`--show-ocr` 与 `case "ocr"/"translate"`，约 :151-173, :364-365）新增 `--render-translate-toast`：
@@ -743,19 +743,19 @@ Max Concurrent: 5（Wave 2）
 > **Do NOT auto-proceed after verification. Wait for user's explicit approval before marking work complete.**
 > **Never mark F1-F4 as checked before getting user's okay.** Rejection or user feedback -> fix -> re-run -> present again -> wait for okay.
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   通读计划。对每个 Must Have：读文件/跑命令验证实现存在。对每个 Must NOT Have：全库搜索违禁模式（ProgressBar、Cursors.Wait、Mouse.OverrideCursor、spinner、PinWindow.ShowToast 调用点改动、设置页下载取消），发现即 REJECT 并给 file:line。检查 .omo/evidence/ 证据文件齐全。
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   跑 `dotnet build ModernScreenShot.sln -c Release`（exit 0）+ `tools/check-i18n.ps1`（exit 0）+ `--translate-test`（exit 0）+ `--smoke`（exit 0）。审查全部改动文件：每个 catch(Exception) 是否过滤 OCE；空 catch、console 残留、注释掉代码、未用 using；AI slop（过度注释、过度抽象、data/result/temp 等泛名）。
   Output: `Build [PASS/FAIL] | i18n [PASS/FAIL] | translate-test [PASS/FAIL] | OCE filters [N/N] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real Manual QA** — `unspecified-high`
+- [x] F3. **Real Manual QA** — `unspecified-high`
   执行每个任务的每个 QA 场景：跑探针、断言日志、验证取消三态（Cancelled 绝不误报 Failed）。跨任务集成：截图路径完整流程（OCR→下载→引擎→推理）toast 阶段连贯；编辑器取消后再次翻译正常；swap 双击只触发一次。证据存 `.omo/evidence/final-qa/`。
   Output: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   逐任务读 "What to do" 对比实际 diff（git log/diff）：规格内全部实现（无遗漏）、规格外零实现（无蔓延）。检查 "Must NOT do" 遵守。检测跨任务污染（Task N 动了 Task M 的文件）。标记无法归类的改动。
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | Unaccounted [CLEAN/N files] | VERDICT`
 
