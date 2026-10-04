@@ -163,6 +163,13 @@ public partial class App
         // Deterministic snapshots: every UiMotion factory snaps its properties to the final values
         // instead of animating. No reset needed — this probe process always hard-exits when done.
         UiMotion.Suppress = true;
+        // --render-translate-toast snapshots the shared ToastWindow in all six feedback states
+        // (not a window from the switch below), so it branches off into its own snapshot loop.
+        if (string.Equals(target, "translate-toast", StringComparison.OrdinalIgnoreCase))
+        {
+            RunTranslateToastRender();
+            return;
+        }
         switch (target.ToLowerInvariant())
         {
             case "settings": OpenSettings(); break;
@@ -260,6 +267,82 @@ public partial class App
                 Log.Error($"--render-{target} failed", ex);
                 Shutdown(1);
             }
+        };
+        timer.Start();
+    }
+
+    /// <summary>
+    /// --render-translate-toast probe: renders the shared ToastWindow (Output/ToastWindow.cs) in
+    /// its six feedback states and writes one PNG per state. Pure UI rendering — no OCR engine,
+    /// no model download, no translation. MSS_RENDER_OUT is the path template:
+    /// "verify_translate_toast.png" yields "verify_translate_toast_1_recognizing.png" …
+    /// "verify_translate_toast_6_failed.png" next to it. Each snapshot path is printed to stdout;
+    /// exit 0 = all six states rendered.
+    /// </summary>
+    private void RunTranslateToastRender()
+    {
+        string? outPath = Environment.GetEnvironmentVariable("MSS_RENDER_OUT");
+        if (string.IsNullOrWhiteSpace(outPath))
+        {
+            Log.Warn("--render-translate-toast requires the MSS_RENDER_OUT environment variable.");
+            Shutdown(2);
+            return;
+        }
+        string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(outPath)) ?? ".";
+        string stem = System.IO.Path.GetFileNameWithoutExtension(outPath);
+        string ext = System.IO.Path.GetExtension(outPath);
+        if (string.IsNullOrEmpty(ext)) ext = ".png";
+
+        // Give the toast time to lay out; UiMotion.Suppress (set by the caller) already snapped
+        // the FadeSlideIn entrance to its final pose, so the first captured frame is the settled one.
+        int waitMs = 800;
+        if (int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_WAIT_MS"), out var parsed) && parsed > 0) waitMs = parsed;
+
+        string cancelLabel = L.Get("Toast.Cancel");
+        var toast = ToastWindow.ShowOrUpdate(L.Get("Ocr.Running"));
+
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(waitMs) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var exit = 0;
+            try
+            {
+                void Snap(string stateName)
+                {
+                    string path = System.IO.Path.Combine(dir, $"{stem}_{stateName}{ext}");
+                    SnapshotWindow(toast, "translate-toast", path);
+                    Console.WriteLine($"--render-translate-toast: wrote {path}");
+                    Log.Info($"--render-translate-toast: wrote {path}");
+                }
+
+                // 1. Recognizing (OCR in progress): no cancel affordance.
+                Snap("1_recognizing");
+                // 2. Model downloading at 42%: cancel affordance present.
+                toast.UpdateText(L.Get("Translate.Downloading", 42));
+                toast.SetCancel(cancelLabel, static () => { });
+                Snap("2_downloading");
+                // 3. Engine loading: cancel affordance present.
+                toast.UpdateText(L.Get("Translate.Toast.LoadingEngine"));
+                Snap("3_loading-engine");
+                // 4. Translating: cancel affordance present.
+                toast.UpdateText(L.Get("Translate.Toast.Translating"));
+                Snap("4_translating");
+                // 5. Cancelled (terminal look): cancel affordance dropped.
+                toast.UpdateText(L.Get("Translate.Cancelled"));
+                toast.SetCancel(null, null);
+                Snap("5_cancelled");
+                // 6. Download failed (terminal look): cancel affordance dropped.
+                toast.UpdateText(L.Get("Translate.DownloadFailed", "connection reset by peer"));
+                Snap("6_failed");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("--render-translate-toast failed", ex);
+                exit = 1;
+            }
+            // One-shot probe process: hard-exit (same rule as the other render probes).
+            Environment.Exit(exit);
         };
         timer.Start();
     }
