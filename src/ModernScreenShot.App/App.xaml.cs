@@ -159,6 +159,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Info($"Exit code {e.ApplicationExitCode}");
+        _operationCts?.Cancel();
         (Services as IDisposable)?.Dispose();
         base.OnExit(e);
     }

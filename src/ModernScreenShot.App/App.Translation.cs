@@ -30,11 +30,18 @@ public partial class App
     /// </summary>
     private async void RunTranslateCapture(CaptureResult result)
     {
+        var ct = BeginOperation();
+        // Warm OCR takes 60-400ms; the 300ms gate keeps that hot path from flashing a toast.
+        // No cancel button during OCR — a sub-second phase is not worth aborting.
+        OperationToastDelayed(L.Get("Ocr.Running"), ct);
+
         var ocr = Services.GetRequiredService<OcrService>();
         if (!ocr.HasBundledModels)
         {
             Log.Error($"Translation needs OCR, but the models are missing under {ocr.BundleModelsDir}");
+            OperationToastComplete(L.Get("Ocr.Unavailable"));
             Notify(L.Get("Translate.Title"), L.Get("Ocr.Unavailable"));
+            EndOperation();
             return;
         }
 
@@ -44,48 +51,90 @@ public partial class App
             // Same pixels the other direct outputs get: inline annotations flattened in.
             var image = ImageWithAnnotations(result);
             var recognized = await ocr.RecognizeAsync(
-                image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy);
+                image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy, ct);
             text = recognized.Text;
             Log.Info($"Translate: OCR read {recognized.Lines.Count} line(s) from the {result.Mode} capture.");
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer operation superseded this one; its toast already owns the screen.
+            Log.Info("Translate: OCR cancelled before translation.");
+            OperationToastComplete(L.Get("Translate.Cancelled"));
+            EndOperation();
+            return;
         }
         catch (Exception ex)
         {
             Log.Error("OCR of the capture failed before translation", ex);
+            OperationToastComplete(L.Get("Ocr.Failed"));
             Notify(L.Get("Translate.Title"), L.Get("Ocr.Failed"));
+            EndOperation();
             return;
         }
 
         if (string.IsNullOrWhiteSpace(text))
         {
+            OperationToastComplete(L.Get("Ocr.Empty"));
             Notify(L.Get("Translate.Title"), L.Get("Ocr.Empty"));
+            EndOperation();
             return;
         }
 
-        await TranslateAndShowAsync(text);
+        // The model/engine phase is known-slow: show immediately, cancel button armed.
+        OperationToast(L.Get("Translate.Toast.LoadingEngine"), cancellable: true);
+        await TranslateAndShowAsync(text, ct);
     }
 
     /// <summary>
     /// Translates <paramref name="text"/> into the resolved target language and opens the result
     /// window. A missing model is offered for download rather than dead-ending.
     /// </summary>
-    private async Task TranslateAndShowAsync(string text)
+    private async Task TranslateAndShowAsync(string text, CancellationToken ct = default)
     {
-        var store = Services.GetRequiredService<SettingsStore>();
-        string target = TranslationFlow.ResolveTarget(text, store.Current.Translation);
-
-        var engine = Services.GetRequiredService<TranslationService>();
-        if (await TranslationFlow.EnsureModelAsync(engine, Notify, null) != EnsureModelResult.Ready) return;
-
         try
         {
-            var outcome = await TranslationFlow.TranslateAsync(engine, text, target);
-            Log.Info($"Translate: -> {target} in {outcome.ElapsedMs} ms ({text.Length} chars).");
-            ShowTranslationResult(outcome, text);
+            var store = Services.GetRequiredService<SettingsStore>();
+            string target = TranslationFlow.ResolveTarget(text, store.Current.Translation);
+
+            var engine = Services.GetRequiredService<TranslationService>();
+            // Download progress goes to the toast (single in-progress channel), not the tray.
+            // The toast is the MessageBox owner: it is topmost, so an owner-less consent box
+            // would hide behind it.
+            var toast = OperationToast(L.Get("Translate.Toast.LoadingEngine"), cancellable: true);
+            var ensured = await TranslationFlow.EnsureModelAsync(engine,
+                (_, body) => OperationToast(body, cancellable: true), toast, ct);
+            if (ensured != EnsureModelResult.Ready)
+            {
+                // Failed already reported why through the toast above (null! = terminal, keeping
+                // that text); Declined (user said no to the download) and Cancelled both read as cancelled.
+                OperationToastComplete(ensured == EnsureModelResult.Failed ? null! : L.Get("Translate.Cancelled"));
+                return;
+            }
+
+            try
+            {
+                OperationToast(L.Get("Translate.Toast.Translating"), cancellable: true);
+                var outcome = await TranslationFlow.TranslateAsync(engine, text, target, ct);
+                Log.Info($"Translate: -> {target} in {outcome.ElapsedMs} ms ({text.Length} chars).");
+                OperationToastClose(); // the result window is the done signal
+                ShowTranslationResult(outcome, text);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is not a failure; it must never reach the Translate.Failed branch.
+                Log.Info("Translate: cancelled by the user.");
+                OperationToastComplete(L.Get("Translate.Cancelled"));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Translation failed", ex);
+                OperationToastComplete(L.Get("Translate.Failed", ex.Message));
+                Notify(L.Get("Translate.Title"), L.Get("Translate.Failed", ex.Message));
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            Log.Error("Translation failed", ex);
-            Notify(L.Get("Translate.Title"), L.Get("Translate.Failed", ex.Message));
+            EndOperation();
         }
     }
 
@@ -115,26 +164,55 @@ public partial class App
     /// </summary>
     private async Task SwapTranslationAsync(TranslationResultWindow window, string sourceText)
     {
-        var store = Services.GetRequiredService<SettingsStore>();
-        var detected = LanguageDetector.Detect(sourceText);
-        // Swap to the counterpart of the target that was just used.
-        string from = store.Current.Translation.ToCode;
-        string target = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
-
-        var engine = Services.GetRequiredService<TranslationService>();
-        if (await TranslationFlow.EnsureModelAsync(engine, Notify, window) != EnsureModelResult.Ready) return;
-
+        var ct = BeginOperation();
         try
         {
-            var outcome = await TranslationFlow.TranslateAsync(engine, sourceText, target);
-            TranslationFlow.RememberTarget(store, target);
-            window.ShowRetranslation(outcome, TranslationFlow.LanguageName(target));
-            Log.Info($"Translate: swapped to {target} in {outcome.ElapsedMs} ms (text looked like '{detected}').");
+            var store = Services.GetRequiredService<SettingsStore>();
+            var detected = LanguageDetector.Detect(sourceText);
+            // Swap to the counterpart of the target that was just used.
+            string from = store.Current.Translation.ToCode;
+            string target = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
+
+            var engine = Services.GetRequiredService<TranslationService>();
+            // Same channel unification as the capture path: download progress goes to the toast,
+            // and the topmost toast owns the consent MessageBox so it cannot hide behind it.
+            var toast = OperationToast(L.Get("Translate.Toast.LoadingEngine"), cancellable: true);
+            var ensured = await TranslationFlow.EnsureModelAsync(engine,
+                (_, body) => OperationToast(body, cancellable: true), toast, ct);
+            if (ensured != EnsureModelResult.Ready)
+            {
+                OperationToastComplete(ensured == EnsureModelResult.Failed ? null! : L.Get("Translate.Cancelled"));
+                // The re-run died before producing a result: hand the swap button back to idle.
+                if (window.IsLoaded) window.RestoreSwapIdle();
+                return;
+            }
+
+            try
+            {
+                OperationToast(L.Get("Translate.Toast.Translating"), cancellable: true);
+                var outcome = await TranslationFlow.TranslateAsync(engine, sourceText, target, ct);
+                TranslationFlow.RememberTarget(store, target);
+                OperationToastClose(); // the updated result window is the done signal
+                window.ShowRetranslation(outcome, TranslationFlow.LanguageName(target));
+                Log.Info($"Translate: swapped to {target} in {outcome.ElapsedMs} ms (text looked like '{detected}').");
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Info("Translate: swapped re-run cancelled by the user.");
+                OperationToastComplete(L.Get("Translate.Cancelled"));
+                if (window.IsLoaded) window.RestoreSwapIdle();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Swapped translation failed", ex);
+                OperationToastComplete(L.Get("Translate.Failed", ex.Message));
+                Notify(L.Get("Translate.Title"), L.Get("Translate.Failed", ex.Message));
+                if (window.IsLoaded) window.RestoreSwapIdle();
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            Log.Error("Swapped translation failed", ex);
-            Notify(L.Get("Translate.Title"), L.Get("Translate.Failed", ex.Message));
+            EndOperation();
         }
     }
 
