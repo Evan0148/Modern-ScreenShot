@@ -702,6 +702,10 @@ public partial class EditorWindow : Window
     // ---- actions bar ----
 
     private Button _copyButton = null!, _saveButton = null!, _saveAsButton = null!, _pinButton = null!, _ocrButton = null!, _translateButton = null!;
+    private TextBlock _translateLabel = null!;
+    // Non-null while a translation (editor run or result-window swap) is in flight; doubles as the
+    // running guard for the translate button, which becomes the cancel control while set.
+    private CancellationTokenSource? _translateCts;
 
     private void BuildActions()
     {
@@ -749,7 +753,8 @@ public partial class EditorWindow : Window
         _saveAsButton = MakeLabeledButton(EditorIcons.SaveAs(), L.Get("Action.SaveAs"), (_, _) => SaveAsDialog(), primary: false);
         _pinButton = MakeLabeledButton(EditorIcons.Pin(), L.Get("Action.Pin"), (_, _) => PinResult(), primary: false);
         _ocrButton = MakeLabeledButton(EditorIcons.Ocr(), L.Get("Action.Ocr"), (_, _) => RunOcr(), primary: false);
-        _translateButton = MakeLabeledButton(EditorIcons.Translate(), L.Get("Action.Translate"), (_, _) => RunTranslate(), primary: false);
+        _translateButton = MakeLabeledButton(EditorIcons.Translate(), L.Get("Action.Translate"), (_, _) => OnTranslateClicked(), primary: false);
+        _translateLabel = (TextBlock)((StackPanel)_translateButton.Content).Children[1];
         left.Children.Add(_copyButton);
         left.Children.Add(_saveButton);
         left.Children.Add(_saveAsButton);
@@ -1222,6 +1227,18 @@ public partial class EditorWindow : Window
     /// the capture overlay's 翻译 button, and it reports progress in the editor's status line rather
     /// than through the tray, because the editor owns the screen while it is open.
     /// </summary>
+    /// <summary>Translate-button click: while a translation is in flight the button is the cancel
+    /// control, so the click cancels instead of starting a second run.</summary>
+    private void OnTranslateClicked()
+    {
+        if (_translateCts is not null)
+        {
+            _translateCts.Cancel();
+            return;
+        }
+        RunTranslate();
+    }
+
     private async void RunTranslate()
     {
         if (_ocr is null || _translation is null)
@@ -1229,7 +1246,10 @@ public partial class EditorWindow : Window
             SetStatus(L.Get("Translate.Unavailable"));
             return;
         }
-        _translateButton.IsEnabled = false;
+        _translateCts = new CancellationTokenSource();
+        var ct = _translateCts.Token;
+        // The button stays enabled: while running it is the cancel control.
+        _translateLabel.Text = L.Get("Toast.Cancel");
         SetStatus(L.Get("Translate.Running"));
         try
         {
@@ -1243,14 +1263,16 @@ public partial class EditorWindow : Window
             }
 
             string target = TranslationFlow.ResolveTarget(recognized.Text, _settings.Current.Translation);
-            if (await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), this)
-                    != EnsureModelResult.Ready)
+            var ensured = await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), this, ct);
+            if (ensured != EnsureModelResult.Ready)
             {
-                if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
+                // Failed already reported why through the notify callback; Declined (user said no)
+                // and Cancelled (real cancellation) both surface as a cancellation.
+                if (ensured != EnsureModelResult.Failed && !_closed) SetStatus(L.Get("Translate.Cancelled"));
                 return;
             }
 
-            var outcome = await TranslationFlow.TranslateAsync(_translation, recognized.Text, target);
+            var outcome = await TranslationFlow.TranslateAsync(_translation, recognized.Text, target, ct);
             if (_closed) return;
             SetStatus(L.Get("Translate.Done", outcome.ElapsedMs / 1000.0));
             var window = new TranslationResultWindow(outcome, _clipboard,
@@ -1262,6 +1284,11 @@ public partial class EditorWindow : Window
             window.Show();
             window.Activate();
         }
+        catch (OperationCanceledException)
+        {
+            Log.Info("Editor translation cancelled.");
+            if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
+        }
         catch (Exception ex)
         {
             Log.Error("Editor translation failed", ex);
@@ -1269,34 +1296,56 @@ public partial class EditorWindow : Window
         }
         finally
         {
-            if (!_closed) _translateButton.IsEnabled = true;
+            _translateCts?.Dispose();
+            _translateCts = null;
+            if (!_closed) _translateLabel.Text = L.Get("Action.Translate");
         }
     }
 
-    /// <summary>Re-runs the editor's recognized text with the direction reversed.</summary>
+    /// <summary>Re-runs the editor's recognized text with the direction reversed. Triggered from the
+    /// result window; reuses the editor's translate CTS so the editor's translate/cancel button also
+    /// governs the swap while it runs.</summary>
     private async Task SwapInEditorAsync(TranslationResultWindow window, string sourceText)
     {
         if (_translation is null) return;
+        bool ownsCts = _translateCts is null;
+        _translateCts ??= new CancellationTokenSource();
+        var ct = _translateCts.Token;
+        if (ownsCts && !_closed) _translateLabel.Text = L.Get("Toast.Cancel");
         string from = _settings.Current.Translation.ToCode;
         string to = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
-        if (await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), window)
-                != EnsureModelResult.Ready)
-        {
-            if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
-            return;
-        }
         try
         {
-            var outcome = await TranslationFlow.TranslateAsync(_translation, sourceText, to);
+            var ensured = await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), window, ct);
+            if (ensured != EnsureModelResult.Ready)
+            {
+                if (ensured != EnsureModelResult.Failed && !_closed) SetStatus(L.Get("Translate.Cancelled"));
+                return;
+            }
+            var outcome = await TranslationFlow.TranslateAsync(_translation, sourceText, to, ct);
             if (_closed) return;
             TranslationFlow.RememberTarget(_settings, to);
             window.ShowRetranslation(outcome, TranslationFlow.LanguageName(to));
             SetStatus(L.Get("Translate.Done", outcome.ElapsedMs / 1000.0));
         }
+        catch (OperationCanceledException)
+        {
+            Log.Info("Editor swapped translation cancelled.");
+            if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
+        }
         catch (Exception ex)
         {
             Log.Error("Editor swapped translation failed", ex);
             if (!_closed) SetStatus(L.Get("Translate.Failed", ex.Message));
+        }
+        finally
+        {
+            if (ownsCts)
+            {
+                _translateCts?.Dispose();
+                _translateCts = null;
+                if (!_closed) _translateLabel.Text = L.Get("Action.Translate");
+            }
         }
     }
 
@@ -1425,6 +1474,7 @@ public partial class EditorWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _closed = true;
+        _translateCts?.Cancel(); // abort an in-flight translation so it never writes to a dead window
         CloseTextOverlay(commit: false);
         _previewTimer.Stop();
         // Remember the last-used effect settings for the next capture. macOS-style window shots carry
