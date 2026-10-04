@@ -74,7 +74,7 @@ public partial class App
         string target = TranslationFlow.ResolveTarget(text, store.Current.Translation);
 
         var engine = Services.GetRequiredService<TranslationService>();
-        if (!await TranslationFlow.EnsureModelAsync(engine, Notify, null)) return;
+        if (await TranslationFlow.EnsureModelAsync(engine, Notify, null) != EnsureModelResult.Ready) return;
 
         try
         {
@@ -122,7 +122,7 @@ public partial class App
         string target = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
 
         var engine = Services.GetRequiredService<TranslationService>();
-        if (!await TranslationFlow.EnsureModelAsync(engine, Notify, window)) return;
+        if (await TranslationFlow.EnsureModelAsync(engine, Notify, window) != EnsureModelResult.Ready) return;
 
         try
         {

@@ -1243,7 +1243,8 @@ public partial class EditorWindow : Window
             }
 
             string target = TranslationFlow.ResolveTarget(recognized.Text, _settings.Current.Translation);
-            if (!await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), this))
+            if (await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), this)
+                    != EnsureModelResult.Ready)
             {
                 if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
                 return;
@@ -1278,7 +1279,8 @@ public partial class EditorWindow : Window
         if (_translation is null) return;
         string from = _settings.Current.Translation.ToCode;
         string to = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
-        if (!await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), window))
+        if (await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), window)
+                != EnsureModelResult.Ready)
         {
             if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
             return;
