@@ -91,6 +91,7 @@
     <sys:String x:Key="Tool.Ellipse">Ellipse (E)</sys:String>
     <sys:String x:Key="Tool.Line">Line (L)</sys:String>
     <sys:String x:Key="Tool.Arrow">Arrow (A)</sys:String>
+    <sys:String x:Key="Tool.Geometry">Geometry (R/E/L/A)·click again or hold for shapes</sys:String>
     <sys:String x:Key="Tool.Pen">Pen (P)</sys:String>
     <sys:String x:Key="Tool.Text">Text (T)</sys:String>
     <sys:String x:Key="Tool.Step">Step number (N)</sys:String>
@@ -106,6 +107,8 @@
     <sys:String x:Key="Prop.Color">Color</sys:String>
     <sys:String x:Key="Prop.Thickness">Thickness</sys:String>
     <sys:String x:Key="Prop.Fill">Fill</sys:String>
+    <sys:String x:Key="Prop.Stroke">Stroke</sys:String>
+    <sys:String x:Key="Prop.Solid">Solid</sys:String>
     <sys:String x:Key="Prop.FontSize">Font size</sys:String>
     <sys:String x:Key="Prop.Opacity">Opacity</sys:String>
     <sys:String x:Key="Prop.Strength">Strength</sys:String>
@@ -307,7 +310,7 @@
     <sys:String x:Key="Overlay.HelpRefresh">Re-capture the screen</sys:String>
     <sys:String x:Key="Overlay.HelpCursorToggle">Show / hide the mouse pointer</sys:String>
     <sys:String x:Key="Overlay.HelpCopyColor">Copy the color under the pointer</sys:String>
-    <sys:String x:Key="Overlay.HelpTools">Annotation tools (inside a selection): V select · R rectangle · E ellipse · L line · A arrow · P pen · H highlighter · T text · N step · M mosaic · X eraser</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">Annotation tools (inside a selection): V select · R rectangle · E ellipse · L line · A arrow · P pen · H highlighter · T text · N step · M mosaic · X eraser (click the Geometry tool again or hold it for shape/style choices)</sys:String>
     <sys:String x:Key="Overlay.HelpClose">F1 to show / hide · click anywhere to close</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionElements">Detecting UI elements</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionWindows">Detecting windows</sys:String>
