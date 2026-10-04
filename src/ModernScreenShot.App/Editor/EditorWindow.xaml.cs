@@ -47,6 +47,9 @@ public partial class EditorWindow : Window
     private GeometryShapeMenu? _geometryMenu;
     private readonly DispatcherTimer _geometryHoldTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private bool _geometryHoldFired;
+    // The press already did its work (the StaysOpen=false popup closes itself on this outside
+    // press) — the release must not immediately re-open it.
+    private bool _geometryPressConsumed;
 
     private readonly List<Button> _swatches = [];
     private readonly Dictionary<Button, string> _swatchHex = [];
@@ -266,6 +269,8 @@ public partial class EditorWindow : Window
         };
         _geometryButton.PreviewMouseLeftButtonDown += (_, _) =>
         {
+            _geometryPressConsumed = _geometryPopup is { IsOpen: true }; // this outside press dismisses the popup
+            if (_geometryPressConsumed) return;
             _geometryHoldFired = false;
             _geometryHoldTimer.Stop();
             _geometryHoldTimer.Start();
@@ -273,12 +278,20 @@ public partial class EditorWindow : Window
         _geometryButton.PreviewMouseLeftButtonUp += (_, e) =>
         {
             _geometryHoldTimer.Stop();
+            bool consumed = _geometryPressConsumed;
             bool fired = _geometryHoldFired;
+            _geometryPressConsumed = false;
             _geometryHoldFired = false;
             _geometryButton.ReleaseMouseCapture();
-            if (fired) e.Handled = true; // the hold already opened the flyout
+            if (fired || consumed) { e.Handled = true; return; } // the hold/outside-press already did the work
+            if (_geometryButton.IsChecked == true)
+            {
+                // Clicking the already-active geometry entry opens the shape menu instead of doing
+                // nothing — the merged button must surface its menu without the hold gesture.
+                e.Handled = true;
+                OpenGeometryMenu();
+            }
         };
-        _geometryButton.MouseLeave += (_, _) => { if (!_geometryHoldFired) _geometryHoldTimer.Stop(); };
         _geometryHoldTimer.Tick += (_, _) =>
         {
             _geometryHoldTimer.Stop();

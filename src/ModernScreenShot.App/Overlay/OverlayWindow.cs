@@ -366,6 +366,8 @@ internal sealed class OverlayWindow : Window
     private GeometryShapeMenu? _geometryMenu;
     private readonly DispatcherTimer _geometryHoldTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private bool _geometryHoldFired;
+    // The press already did its work (it dismissed the open flyout) — the release must not re-open it.
+    private bool _geometryPressConsumed;
 
     // Options bar: every control is built once with the toolbar and only its Visibility/IsEnabled/
     // background is touched afterwards — this runs on the overlay hot path (per rendered frame).
@@ -407,6 +409,7 @@ internal sealed class OverlayWindow : Window
         panel.Children.Add(MakeIconButton("\uE74E", "Action.Save", (_, _) => _session.Confirm(OverlayIntent.Save)));
         panel.Children.Add(MakeIconButton("\uE718", "Action.Pin", (_, _) => _session.Confirm(OverlayIntent.Pin)));
         panel.Children.Add(MakeElementIconButton(EditorIcons.Ocr(), "Action.Ocr", (_, _) => _session.Confirm(OverlayIntent.Ocr)));
+        panel.Children.Add(MakeElementIconButton(EditorIcons.Translate(), "Action.Translate", (_, _) => _session.Confirm(OverlayIntent.Translate)));
         panel.Children.Add(MakeIconButton("\uE73E", "Action.Edit", (_, _) => _session.Confirm(OverlayIntent.Edit)));
         panel.Children.Add(MakeIconButton("\uE711", "Action.Cancel", (_, _) => _session.Cancel()));
 
@@ -452,9 +455,11 @@ internal sealed class OverlayWindow : Window
             if (_geometryMenu is not null)
             {
                 CloseGeometryMenu(); // a press on the button while open just dismisses the flyout
+                _geometryPressConsumed = true;
                 e.Handled = true;
                 return;
             }
+            _geometryPressConsumed = false;
             _geometryHoldFired = false;
             _geometryHoldTimer.Stop();
             _geometryHoldTimer.Start();
@@ -462,14 +467,23 @@ internal sealed class OverlayWindow : Window
         _geometryButton.PreviewMouseLeftButtonUp += (_, e) =>
         {
             _geometryHoldTimer.Stop();
+            bool consumed = _geometryPressConsumed;
             bool fired = _geometryHoldFired;
+            _geometryPressConsumed = false;
             _geometryHoldFired = false;
             _geometryButton.ReleaseMouseCapture();
             e.Handled = true; // Click is never used; release-after-hold only swallows the press
-            if (fired) return;
-            _session.Tool = _session.Tool == _lastGeometry ? null : _lastGeometry;
+            if (fired || consumed) return;
+            if (_session.Tool == _lastGeometry)
+            {
+                // The merged entry replaces four buttons, so the menu must be reachable without
+                // knowing the hold gesture: clicking the active geometry tool opens it instead of
+                // toggling back to Select (V / the Select button do that).
+                OpenGeometryMenu();
+                return;
+            }
+            _session.Tool = _lastGeometry;
         };
-        _geometryButton.MouseLeave += (_, _) => { if (!_geometryHoldFired) _geometryHoldTimer.Stop(); };
         _geometryHoldTimer.Tick += (_, _) =>
         {
             _geometryHoldTimer.Stop();
