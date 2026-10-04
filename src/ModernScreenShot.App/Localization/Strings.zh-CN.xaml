@@ -74,6 +74,7 @@
     <sys:String x:Key="Toast.SaveFailed">保存失败：{0}</sys:String>
     <sys:String x:Key="Toast.CopyFailed">无法访问剪贴板，请重试。</sys:String>
     <sys:String x:Key="Toast.Pinned">已贴到屏幕</sys:String>
+    <sys:String x:Key="Toast.Cancel">取消</sys:String>
 
     <!-- Presets -->
     <sys:String x:Key="Preset.Clean">简洁</sys:String>
@@ -370,6 +371,9 @@
     <sys:String x:Key="Translate.Downloading">正在下载翻译模型 · {0:0}%（可断点续传）</sys:String>
     <sys:String x:Key="Translate.DownloadDone">翻译模型已安装，可离线使用。</sys:String>
     <sys:String x:Key="Translate.DownloadFailed">翻译模型下载失败：{0}</sys:String>
+    <sys:String x:Key="Translate.Toast.LoadingEngine">正在加载翻译引擎…（首次约需几秒）</sys:String>
+    <sys:String x:Key="Translate.Toast.Translating">正在翻译…</sys:String>
+    <sys:String x:Key="Translate.Toast.Resuming">从 {0:0}% 继续下载…</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot 已在后台运行</sys:String>

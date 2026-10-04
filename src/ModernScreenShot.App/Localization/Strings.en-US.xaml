@@ -74,6 +74,7 @@
     <sys:String x:Key="Toast.SaveFailed">Couldn't save the file: {0}</sys:String>
     <sys:String x:Key="Toast.CopyFailed">Couldn't access the clipboard. Try again.</sys:String>
     <sys:String x:Key="Toast.Pinned">Pinned to screen</sys:String>
+    <sys:String x:Key="Toast.Cancel">Cancel</sys:String>
 
     <!-- Presets -->
     <sys:String x:Key="Preset.Clean">Clean</sys:String>
@@ -370,6 +371,9 @@
     <sys:String x:Key="Translate.Downloading">Downloading the translation model · {0:0}% (resumable)</sys:String>
     <sys:String x:Key="Translate.DownloadDone">The translation model is installed and works offline.</sys:String>
     <sys:String x:Key="Translate.DownloadFailed">Translation model download failed: {0}</sys:String>
+    <sys:String x:Key="Translate.Toast.LoadingEngine">Loading translation engine… (first run takes a few seconds)</sys:String>
+    <sys:String x:Key="Translate.Toast.Translating">Translating…</sys:String>
+    <sys:String x:Key="Translate.Toast.Resuming">Resuming download from {0:0}%…</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>
