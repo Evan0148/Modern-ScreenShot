@@ -7,7 +7,7 @@ public enum CaptureMode { Region, Fullscreen, AllMonitors, ActiveWindow, WindowP
 
 /// <summary>Append new members at the END: the settings window maps combo indices to this enum's
 /// declaration order, so inserting in the middle would silently reassign every stored choice.</summary>
-public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin, FloatingThumbnail, OcrText }
+public enum AfterCaptureAction { ShowToolbar, OpenEditor, CopyOnly, SaveOnly, Pin, FloatingThumbnail, OcrText, TranslateText }
 
 public enum ImageFormat { Png, Jpg, WebP }
 
@@ -133,6 +133,24 @@ public sealed class OcrSettings
     public bool CopyAfterRecognize { get; set; } = true;
 }
 
+/// <summary>
+/// Offline translation (Hy-MT2 via llama.cpp). One multilingual model covers every direction, so
+/// there is no per-language-pair package any more — the model is downloaded once, on demand.
+/// </summary>
+public sealed class TranslationSettings
+{
+    /// <summary>Target language code, e.g. "zh". Any code in <c>TranslationLanguages</c>.</summary>
+    public string ToCode { get; set; } = "zh";
+    /// <summary>
+    /// When the recognized text is already in the target language, translate into the
+    /// Chinese/English counterpart instead — so a Chinese screenshot still becomes English even
+    /// though the configured target is Chinese, and no settings trip is needed.
+    /// </summary>
+    public bool AutoDetectSource { get; set; } = true;
+    /// <summary>Copy the translated text to the clipboard as soon as a translation finishes.</summary>
+    public bool CopyAfterTranslate { get; set; } = true;
+}
+
 public sealed class AppSettings
 {
     public const int CurrentVersion = 1;
@@ -153,6 +171,7 @@ public sealed class AppSettings
     public CaptureSettings Capture { get; set; } = new();
     public EditorSettings Editor { get; set; } = new();
     public OcrSettings Ocr { get; set; } = new();
+    public TranslationSettings Translation { get; set; } = new();
     /// <summary>Effect settings applied to new captures (last used).</summary>
     public EffectSettings Effects { get; set; } = BuiltInPresets.Clean().Settings;
     public List<EffectPreset> UserPresets { get; set; } = [];

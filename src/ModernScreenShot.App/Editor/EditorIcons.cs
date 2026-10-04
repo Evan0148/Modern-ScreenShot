@@ -195,8 +195,12 @@ internal static class EditorIcons
         g.LineTo(new Point(9.5, 11.5), true, false);
     }));
 
-    // ---- tool glyph builders ----
+    /// <summary>Translate action: the familiar "A / 文" pair — Latin and CJK side by side, i.e.
+    /// "turn this text into that language". Shared by the editor action bar and the capture
+    /// overlay toolbar, and sits directly next to <see cref="Ocr"/> in both.</summary>
+    public static FrameworkElement Translate() => TranslatePair();
 
+    // ---- tool glyph builders ----
     // Filled Snipaste-style cursor — kept identical to the overlay toolbar's SelectIcon so both
     // strips share one icon vocabulary.
     private static Canvas Select() => new()
@@ -380,6 +384,35 @@ internal static class EditorIcons
     }
 
     // ---- primitives ----
+
+    private static FrameworkElement TranslatePair()
+    {
+        var canvas = new Canvas { Width = 18, Height = 18 };
+        var latin = new TextBlock
+        {
+            Text = "A",
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.White,
+        };
+        Canvas.SetLeft(latin, 0);
+        Canvas.SetTop(latin, -1);
+        var cjk = new TextBlock
+        {
+            // YaHei first so the ideograph renders with the same weight as the Latin "A" beside it.
+            Text = "文",
+            FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = Brushes.White,
+        };
+        Canvas.SetLeft(cjk, 7.5);
+        Canvas.SetTop(cjk, 5);
+        canvas.Children.Add(latin);
+        canvas.Children.Add(cjk);
+        return canvas;
+    }
 
     private static TextBlock Glyph(string text, bool bold = false) => new()
     {

@@ -1,0 +1,2 @@
+llama.cpp b11379 (win-cpu-x64, MIT)
+built 2026-10-04

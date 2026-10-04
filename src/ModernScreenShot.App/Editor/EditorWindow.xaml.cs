@@ -15,11 +15,13 @@ using ModernScreenShot.App.Interop;
 using ModernScreenShot.App.Ocr;
 using ModernScreenShot.App.Output;
 using ModernScreenShot.App.Services;
+using ModernScreenShot.App.Translation;
 using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
+using ModernScreenShot.Core.Translation;
 using L = ModernScreenShot.App.Localization.LocalizationService;
 
 namespace ModernScreenShot.App.Editor;
@@ -34,17 +36,8 @@ public partial class EditorWindow : Window
     private readonly AnnotationDocument? _document;
     private readonly Func<PixelBuffer, Window>? _pinFactory;
     private readonly OcrService? _ocr;
+    private readonly TranslationService? _translation;
     private readonly Dictionary<EditorTool, RadioButton> _toolButtons = [];
-
-    // Merged "几何" entry: the four geometry tools share one radio button; a click activates the
-    // last-used shape, a ~400ms press opens the shape/variant flyout (see GeometryShapeMenu).
-    private RadioButton _geometryButton = null!;
-    private EditorTool _lastGeometryTool = EditorTool.Rect;
-    private Popup? _geometryPopup;
-    private GeometryShapeMenu? _geometryMenu;
-    private readonly DispatcherTimer _geometryHoldTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
-    private bool _geometryHoldFired;
-
     private readonly List<Button> _swatches = [];
     private readonly Dictionary<Button, string> _swatchHex = [];
     private AnnotationCanvas _canvas = null!;
@@ -83,7 +76,7 @@ public partial class EditorWindow : Window
 
     public EditorWindow(CaptureResult result, SettingsStore settings, ClipboardService clipboard, ImageExporter exporter,
         AnnotationDocument? document = null, Func<PixelBuffer, Window>? pinFactory = null, MonitorService? monitors = null,
-        OcrService? ocr = null)
+        OcrService? ocr = null, TranslationService? translation = null)
     {
         InitializeComponent();
         AppTitleBar.Attach(this); // custom title bar (Controls/AppTitleBar) replaces the OS caption
@@ -94,6 +87,7 @@ public partial class EditorWindow : Window
         _document = document;
         _pinFactory = pinFactory;
         _ocr = ocr;
+        _translation = translation;
 
         var editor = settings.Current.Editor;
         // Size to the monitor the capture came from: sizing against the primary work area overflows
@@ -209,8 +203,6 @@ public partial class EditorWindow : Window
             (EditorTool.Magnifier, "Tool.Magnifier"), (EditorTool.Crop, "Tool.Crop"), (EditorTool.Eraser, "Tool.Eraser"),
         })
         {
-            if (tool == EditorTool.Rect) AddGeometryButton(panel); // the merged 几何 entry sits where Rect used to
-            if (GeometryTools.IsGeometry(tool)) continue;
             var rb = new RadioButton
             {
                 GroupName = "editorTools",
@@ -239,97 +231,6 @@ public partial class EditorWindow : Window
         panel.Children.Add(_backButton);
 
         ToolbarHost.Child = panel;
-    }
-
-    /// <summary>The merged geometry entry: all four shape tools map to this one radio button (so
-    /// hotkey sync and the active highlight work unchanged), the icon shows the last-used shape,
-    /// a click re-activates it, and holding ~400ms opens the shape/variant flyout as a Popup.</summary>
-    private void AddGeometryButton(WrapPanel panel)
-    {
-        _lastGeometryTool = GeometryTools.Parse(_settings.Current.Editor.GeometryTool);
-        _geometryButton = new RadioButton
-        {
-            GroupName = "editorTools",
-            Style = ToolToggleStyle(),
-            Content = EditorIcons.For(_lastGeometryTool),
-            ToolTip = L.Get("Tool.Geometry"),
-        };
-        _geometryButton.Checked += (_, _) =>
-        {
-            _canvas.Tool = _lastGeometryTool;
-            if (_ready) UpdatePropertyPanel();
-            RefreshSelectionButtons();
-        };
-        _geometryButton.PreviewMouseLeftButtonDown += (_, _) =>
-        {
-            _geometryHoldFired = false;
-            _geometryHoldTimer.Stop();
-            _geometryHoldTimer.Start();
-        };
-        _geometryButton.PreviewMouseLeftButtonUp += (_, e) =>
-        {
-            _geometryHoldTimer.Stop();
-            bool fired = _geometryHoldFired;
-            _geometryHoldFired = false;
-            _geometryButton.ReleaseMouseCapture();
-            if (fired) e.Handled = true; // the hold already opened the flyout
-        };
-        _geometryButton.MouseLeave += (_, _) => { if (!_geometryHoldFired) _geometryHoldTimer.Stop(); };
-        _geometryHoldTimer.Tick += (_, _) =>
-        {
-            _geometryHoldTimer.Stop();
-            _geometryHoldFired = true;
-            _geometryButton.ReleaseMouseCapture();
-            OpenGeometryMenu();
-        };
-        panel.Children.Add(_geometryButton);
-        foreach (var tool in GeometryTools.All) _toolButtons[tool] = _geometryButton;
-    }
-
-    /// <summary>Lazily builds the shape/variant flyout and shows it under the geometry button.</summary>
-    private void OpenGeometryMenu()
-    {
-        if (_geometryPopup is null)
-        {
-            _geometryMenu = new GeometryShapeMenu(
-                () => GeometryTools.IsGeometry(_canvas.Tool) ? _canvas.Tool : _lastGeometryTool,
-                tool => GeometryTools.UsesDash(tool) ? _canvas.DashedLine : _canvas.FillShape,
-                SetTool,
-                (tool, value) =>
-                {
-                    if (GeometryTools.UsesDash(tool))
-                        ApplyInstant(() => _canvas.DashedLine = value, item => { if (item is LineItem l) l.Dashed = value; });
-                    else
-                        ApplyInstant(() => _canvas.FillShape = value, item =>
-                        {
-                            switch (item)
-                            {
-                                case RectItem r:
-                                    r.Filled = value;
-                                    if (value) r.FillColor = AnnotationCanvas.FillColorFor(r.StrokeColor);
-                                    break;
-                                case EllipseItem ellipse:
-                                    ellipse.Filled = value;
-                                    if (value) ellipse.FillColor = AnnotationCanvas.FillColorFor(ellipse.StrokeColor);
-                                    break;
-                            }
-                        });
-                    SetTool(tool);
-                    UpdatePropertyPanel(); // re-sync the fill/dashed checkboxes
-                });
-            _geometryMenu.CloseRequested += (_, _) => _geometryPopup!.IsOpen = false;
-            _geometryPopup = new Popup
-            {
-                PlacementTarget = _geometryButton,
-                Placement = PlacementMode.Bottom,
-                StaysOpen = false, // any outside click dismisses it
-                AllowsTransparency = true,
-                PopupAnimation = PopupAnimation.Fade,
-                Child = _geometryMenu,
-            };
-        }
-        _geometryMenu!.Refresh();
-        _geometryPopup!.IsOpen = true;
     }
 
     // A plain 1×22 rule. The Separator control's default template paints a horizontal 1px line,
@@ -800,7 +701,7 @@ public partial class EditorWindow : Window
 
     // ---- actions bar ----
 
-    private Button _copyButton = null!, _saveButton = null!, _saveAsButton = null!, _pinButton = null!, _ocrButton = null!;
+    private Button _copyButton = null!, _saveButton = null!, _saveAsButton = null!, _pinButton = null!, _ocrButton = null!, _translateButton = null!;
 
     private void BuildActions()
     {
@@ -848,11 +749,13 @@ public partial class EditorWindow : Window
         _saveAsButton = MakeLabeledButton(EditorIcons.SaveAs(), L.Get("Action.SaveAs"), (_, _) => SaveAsDialog(), primary: false);
         _pinButton = MakeLabeledButton(EditorIcons.Pin(), L.Get("Action.Pin"), (_, _) => PinResult(), primary: false);
         _ocrButton = MakeLabeledButton(EditorIcons.Ocr(), L.Get("Action.Ocr"), (_, _) => RunOcr(), primary: false);
+        _translateButton = MakeLabeledButton(EditorIcons.Translate(), L.Get("Action.Translate"), (_, _) => RunTranslate(), primary: false);
         left.Children.Add(_copyButton);
         left.Children.Add(_saveButton);
         left.Children.Add(_saveAsButton);
         left.Children.Add(_pinButton);
         left.Children.Add(_ocrButton);
+        left.Children.Add(_translateButton);
         left.Children.Add(ToolbarSeparator());
 
         _effectsButton = MakeIconButton(EditorIcons.Effects(), "Editor.Effects", (_, _) => ToggleEffects());
@@ -1314,8 +1217,88 @@ public partial class EditorWindow : Window
         }
     }
 
-    // ---- keyboard ----
+    /// <summary>
+    /// Reads the text off the current canvas (OCR) and translates it with the local model. Same two-step shape as
+    /// the capture overlay's 翻译 button, and it reports progress in the editor's status line rather
+    /// than through the tray, because the editor owns the screen while it is open.
+    /// </summary>
+    private async void RunTranslate()
+    {
+        if (_ocr is null || _translation is null)
+        {
+            SetStatus(L.Get("Translate.Unavailable"));
+            return;
+        }
+        _translateButton.IsEnabled = false;
+        SetStatus(L.Get("Translate.Running"));
+        try
+        {
+            var image = RenderFlattened();
+            var recognized = await _ocr.RecognizeAsync(image, _settings.Current.Ocr.Accuracy);
+            if (_closed) return; // the editor went away while the recognizer was busy
+            if (string.IsNullOrWhiteSpace(recognized.Text))
+            {
+                SetStatus(L.Get("Ocr.Empty"));
+                return;
+            }
 
+            string target = TranslationFlow.ResolveTarget(recognized.Text, _settings.Current.Translation);
+            if (!await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), this))
+            {
+                if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
+                return;
+            }
+
+            var outcome = await TranslationFlow.TranslateAsync(_translation, recognized.Text, target);
+            if (_closed) return;
+            SetStatus(L.Get("Translate.Done", outcome.ElapsedMs / 1000.0));
+            var window = new TranslationResultWindow(outcome, _clipboard,
+                _settings.Current.Translation.CopyAfterTranslate, TranslationFlow.LanguageName(target))
+            {
+                Owner = this,
+            };
+            window.SwapRequested += async () => await SwapInEditorAsync(window, recognized.Text);
+            window.Show();
+            window.Activate();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Editor translation failed", ex);
+            if (!_closed) SetStatus(L.Get("Translate.Failed", ex.Message));
+        }
+        finally
+        {
+            if (!_closed) _translateButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Re-runs the editor's recognized text with the direction reversed.</summary>
+    private async Task SwapInEditorAsync(TranslationResultWindow window, string sourceText)
+    {
+        if (_translation is null) return;
+        string from = _settings.Current.Translation.ToCode;
+        string to = string.Equals(from, "zh", StringComparison.OrdinalIgnoreCase) ? "en" : "zh";
+        if (!await TranslationFlow.EnsureModelAsync(_translation, (_, body) => SetStatus(body), window))
+        {
+            if (!_closed) SetStatus(L.Get("Translate.Cancelled"));
+            return;
+        }
+        try
+        {
+            var outcome = await TranslationFlow.TranslateAsync(_translation, sourceText, to);
+            if (_closed) return;
+            TranslationFlow.RememberTarget(_settings, to);
+            window.ShowRetranslation(outcome, TranslationFlow.LanguageName(to));
+            SetStatus(L.Get("Translate.Done", outcome.ElapsedMs / 1000.0));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Editor swapped translation failed", ex);
+            if (!_closed) SetStatus(L.Get("Translate.Failed", ex.Message));
+        }
+    }
+
+    // ---- keyboard ----
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is TextBoxBase) return; // let the text editor work
@@ -1340,12 +1323,6 @@ public partial class EditorWindow : Window
         switch (e.Key)
         {
             case Key.Escape:
-                if (_geometryPopup is { } popup && popup.IsOpen)
-                {
-                    popup.IsOpen = false; // the flyout swallows the first Esc
-                    e.Handled = true;
-                    return;
-                }
                 CloseTextOverlay(commit: false);
                 _canvas.AbortInteraction();
                 e.Handled = true;
@@ -1400,21 +1377,6 @@ public partial class EditorWindow : Window
 
     private void SetTool(EditorTool tool)
     {
-        if (GeometryTools.IsGeometry(tool))
-        {
-            // Hotkey/menu path: the picked shape becomes the last-used one, so the merged button's
-            // Checked handler (fired just below) activates exactly this tool. When the merged radio
-            // is already checked, Checked will NOT refire — apply the tool directly.
-            _lastGeometryTool = tool;
-            _settings.Current.Editor.GeometryTool = tool.ToString();
-            _geometryButton.Content = EditorIcons.For(tool);
-            if (_geometryButton.IsChecked == true)
-            {
-                _canvas.Tool = tool;
-                if (_ready) UpdatePropertyPanel();
-                RefreshSelectionButtons();
-            }
-        }
         if (_toolButtons.TryGetValue(tool, out var rb)) rb.IsChecked = true;
     }
 
@@ -1469,7 +1431,6 @@ public partial class EditorWindow : Window
             _settings.Current.Effects = _canvas.Document.Effects.Clone();
         // Remember the last-used annotation tool options as well (mirrors the overlay options bar).
         var ed = _settings.Current.Editor;
-        ed.GeometryTool = _lastGeometryTool.ToString();
         ed.StrokeColor = _canvas.StrokeColor;
         ed.StrokeThickness = _canvas.StrokeThickness;
         ed.FontSize = _canvas.FontSize;

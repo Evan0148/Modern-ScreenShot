@@ -18,6 +18,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- llama.cpp CPU runtime for offline translation (see tools/build-llama-runtime.ps1). It is
+         generated rather than committed, so the item group is conditional: without it the app still
+         builds and simply reports translation as unavailable. Copied to llama/ because
+         TranslationEngine looks for llama-server.exe beside the exe. -->
+    <Content Include="Assets\llama\**\*" Condition="Exists('Assets\llama\llama-server.exe')">
+      <Link>llama\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\ModernScreenShot.Core\ModernScreenShot.Core.csproj" />
   </ItemGroup>
 

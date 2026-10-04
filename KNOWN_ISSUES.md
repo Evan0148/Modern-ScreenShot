@@ -1,6 +1,118 @@
 # KNOWN ISSUES / 备忘
 按任务顺序记录无人值守期间自行决定的事项与未验证点。用户手工测试时可对照检查。
 
+## 已执行：翻译引擎换成 Hy-MT2 + llama.cpp（2026-10-04，替换 Argos）
+
+上一条调研的结论已落地。**旧引擎（Argos Translate / OPUS-MT 77M int8 + 173 MB 便携 Python 引擎 + JSON bridge 子进程）已整体删除**，换成腾讯 **Hy-MT2-1.8B**（Apache-2.0）跑在 **llama.cpp**（MIT，纯 CPU）上。
+
+- **集成方式：llama-server 子进程 + OpenAI 兼容 HTTP**，不是进程内 LLamaSharp。理由：**质量数据本来就是在 llama-server 上测的**，用同一路径能原样复现；而且聊天模板/special token 由 llama.cpp 自己套用，C# 侧完全不碰（手工拼 `<｜hy_User｜>` 这类 token 风险太高）。进程长驻、首个请求时启动。
+- **删掉的东西**：`tools/argos_bridge.py`、`tools/build-argos-engine.ps1`、`Assets/argos/`（1361 个文件 / 171 MB）、`TranslationPackages.cs`（按语言对下载的 .argosmodel 逻辑）、`ARGOS_*` 环境变量、`--translate-install=from-to` 的按对安装。
+- **新增**：`tools/build-llama-runtime.ps1`（取 llama.cpp win-cpu-x64 release，只留 `llama-server.exe` + 21 个 DLL，剔掉其它 CLI 的 `*-impl.dll`，42 MB）、`TranslationLanguages.cs`（36 种语言）、`TranslationModelDownloader.cs`（GGUF 断点续传下载）、重写的 `TranslationService.cs`。
+- **包体积反而变小**：publish **447.9 MB / 1644 文件 → 318.9 MB / 306 文件**（−129 MB，文件数少 1338 个），因为 171 MB 的 Python 引擎换成 42 MB 原生运行时。按需下载的模型从 70 MB/方向 变成 1.08 GB（一次，36 语言双向）。
+- **实测质量（同一段文字、同一个模型、走应用自身链路）**：
+  | | Argos（旧） | Hy-MT2（新） |
+  |---|---|---|
+  | 习语 the deck is stacked against them | 「**甲板堆积在他们身上**」 | 「处于**极不利的境地**」✓ |
+  | Press Enter…or Escape to cancel | 「或取消。」**漏掉 Escape** | 「按 Enter 确认选择，按 Escape 取消。」✓ |
+  | …slow inflation **but also** increase unemployment | 「**并**增加失业率」转折丢失 | 「但也会增加失业率」✓ |
+  | zh→en 他想了想，**还是把那份合同**放回了抽屉里 | 漏译「那份合同」 | "…still put **the contract** back…"✓ |
+  | 对用户标准译文的 chrF | 31.06 | **47.11** |
+- **延迟**（本机 24 逻辑核，`-t 12`）：生成 **~21.5 token/秒**；一句话 **0.7–1.0 秒**，用户那段 68 词长段落 **~4 秒**；首次翻译额外付一次模型加载（约 3–5 秒）。旧的 Argos 是 0.26 秒/句，所以**确实慢了 3–4 倍**——这是换质量的代价，已如实记入 README。
+- **内存**：模型常驻约 2 GB。对一个托盘常驻工具太重，因此**加了闲置 5 分钟自动卸载引擎**，下次翻译再加载（`TranslationService.StopIfIdle`）。这条是自发加的，未在真机长时间验证。
+- **模型下载实测**：ModelScope 源，1.08 GB 用时 **0.8 分钟**（约 24 MB/s）。HuggingFace CDN 同文件只有约 0.3 MB/s，故 ModelScope 为主源、HF 为备源。下载器**按已发布字节数校验**，支持 `.part` 断点续传（服务器不支持 Range 时自动从头开始）。
+- **门禁**：build 0 警告 0 错误；i18n 382=382；`--smoke` 退出码 0；`harness core`（66 项断言，含 OCR 行重组与文本重排）与 `harness ocr` 均 ALL PASSED；`--translate-install` 退出码 0；`--translate-test` 双向退出码 0；`--render-translate` / `--render-settings`（新增 `MSS_RENDER_SCROLL=end` 以截到折叠下方）快照目检通过。
+- **未验证 / 待真机**：① **叠加层工具条**渲染不了（无头环境限制同前），翻译按钮的接线与图标已在编辑器快照确认，但仍需真机点一次；② 闲置卸载逻辑、断点续传的中途中断-恢复、36 种语言中除中英外的其它语种质量均未测；③ 未在 8 GB 内存机器上验证（模型约 2 GB 常驻）；④ llama.cpp 在老旧 CPU 上会退化到 `ggml-cpu-x64` 档（更慢但可用），未实测。
+
+
+## 翻译引擎选型调研：有没有比 Argos 更好的离线方案（2026-10-04，待用户决策）
+
+**结论**：有，而且好很多——**腾讯 Hy-MT2（Apache-2.0，专为翻译训练，33 语种）**，用 **llama.cpp（MIT）** 跑 GGUF。1.8B / Q4_K_M 权重 1.08 GB，在本机 CPU 上实测**质量大幅优于 Argos**，同时**基础安装包还能变小**（llama.cpp 最小运行集 ~25 MB，可整体替换现在 171 MB 的 Python 引擎）。仍未改动代码，等用户拍板。
+
+- **需求约束（承接上文）**：完全离线、Windows x64 + **纯 CPU**（不假设 GPU）、可嵌入 .NET WPF、体积/延迟可接受、开源可商用、中英双向。
+- **实测（同一批句子、同一套指标；Argos 用的是本应用已调优的 beam 10）**：
+
+  | 引擎 | 对用户标准译文 chrF↑ | 往返 chrF↑ | 单句热延迟 | 内存 | 模型体积 |
+  |---|---|---|---|---|---|
+  | Argos Translate（现状） | 31.06 | 71.66 | **0.26 s** | ~0.2 GB | 70 MB/方向 |
+  | **Hy-MT2-1.8B Q4_K_M** | **47.11** | 69.83 | 0.72 s | ~2.1 GB | 1.08 GB（全 33 语种） |
+  | Hy-MT2-7B Q4_K_M | 42.24 | **73.87** | 3.75 s | 6.46 GB | 4.41 GB |
+
+  **两个指标不一致要如实说明**：chrF 是字符 n-gram 重合度，只对一个参考答案算分，换个同义说法就掉分；往返一致性则偏向直译。7B 的句子（「处于劣势」「本该轻松得手的交易」「虽然能抑制…但也会增加」）肉眼更贴标准译文却 chrF 更低，而 1.8B 在某些句子上用词更接近参考。**两者都远胜 Argos，这一点两个指标一致**。
+- **肉眼可见的具体差距（en→zh，逐条对照）**：
+  - 习语 "the deck is stacked against them"：Argos →「**甲板堆积在他们身上**」（不通）；Hy-MT2 →「自己的处境非常不利 / 形势对他们不利」✓
+  - "Press Enter … or Escape to cancel."：Argos →「按 Enter 键确认选择, 或取消 。」**整句丢掉了 Escape**；Hy-MT2 →「按回车键确认选择，或按 ESC 键取消。」✓ 完整且本地化
+  - "…slow inflation **but also** increase unemployment."：Argos →「…减缓通货膨胀**并**增加失业率」（**转折关系丢失**，意思反了）；Hy-MT2 →「虽然能抑制通货膨胀，**但也会**增加失业率」✓
+  - zh→en「他想了想，**还是把那份合同**放回了抽屉里。」：Argos → "He thought about it and put it back in the drawer."（**漏译「那份合同」**）；Hy-MT2 → "…but still put the contract back…" ✓
+  - 标点：Argos 混用半角；Hy-MT2 输出规整全角中文标点。
+- **成本与收益**：基础包侧 llama.cpp 最小运行集 **~25 MB**（llama.dll 3.1 + ggml-base 0.8 + ggml-cpu-* 按 CPU 指令集选用），**替换掉现有 171 MB 的 CPython 引擎后基础包反而缩小约 145 MB**；代价是按需下载的模型从 70 MB/方向 变成 1.08 GB（一次性，全语种双向），内存 ~2 GB，CPU 延迟约为原来的 2.8 倍。按应用已有的「内置轻量 + 按需下载重型」分层模式（同 OCR 快速/精确两档），这套完全对得上。
+- **已排除的方案及原因**：`opus-mt-tc-big-*-zh` **不存在**（tc-big 只覆盖欧洲语系，已逐一核对 HF）；**NLLB-200** 是 CC-BY-NC-**非商用**，且第三方母语者评测显示 en→zh 还不如 Opus-MT，600M 也要 2.5–3 GB；**NLLB-3.3B** 需 13–16 GB 且 en→zh 差；**MADLAD-400** Apache-2.0 但要 30–40 GB 内存，[另一个项目明确评估后拒绝](https://github.com/kizuna-ai-lab/sokuji/issues/384)（"usable, but worse than what we already have"）；**Tower-7B** 质量最好但 25 GB 内存、CPU 上单条 10 分钟；**Hunyuan-MT-7B / Chimera-7B**（WMT25 31 项第一）体积与 7B 同级，作为 7B 档备选。
+- **集成路径（未实施）**：LLamaSharp 0.27（NuGet，147 万下载，MIT）+ llama.cpp(MIT) 原生库；.NET 侧直接进程内推理，**可顺带删掉 Python 引擎、bridge.py 与整套 ARGOS_* 环境变量**。前文所有翻译入口（叠加层/编辑器/设置/反向翻译/`--translate-test`）都收敛在 `TranslationFlow`，替换面很小。
+- **证据**：`%TEMP%\llm-test\`（`hymt_greedy.json` / `hymt7b_greedy.json` / `side_by_side.json`）；模型 [tencent/Hy-MT2-1.8B-GGUF](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF)（ModelScope 镜像下载快 8 倍）；[中文母语者评测参考](https://whynothugo.nl/journal/2025/11/02/translation-models-between-english-and-chinese/)。
+- **未验证**：只测了 en↔zh 与零星句子；未测长文/多段、未测 1.25bit(440 MB) 与 Q8 量化档、未在低配机器（8 GB 内存）上验证 1.8B 的可用性；llama.cpp 的 AVX 档位在老旧 CPU 上会退化到 ggml-cpu-x64（更慢但可用）。
+
+
+## 翻译质量调参（2026-10-04，用户要求"微调参数，实在不行就算了"）
+
+**结论先说**：**有可测量的小幅提升，但补不上与"标准译文"的差距**——那个差距是模型容量，不是参数。
+
+- **可用的旋钮只有两个**（查上游源码确认）：`ARGOS_BEAM_SIZE` → `translate_batch(beam_size=max(num_hypotheses, ARGOS_BEAM_SIZE))`；`ARGOS_COMPUTE_TYPE` → `ctranslate2.Translator(compute_type=...)`。**`length_penalty=0.2` 与 `num_hypotheses=4` 是硬编码的**，不改上游源码就动不了（没改，保持与上游一致）。两者都在 import 时读取，所以由 bridge 在导入 argostranslate **之前** 设置。
+- **测量方法（两套，互补）**：
+  1. **对用户给的标准译文算 chrF**（单句，有参考答案）；
+  2. **往返一致性**：en→zh→en 后再对原英文算 chrF（8 句多样语料，不需要参考答案）。用后者是为了**避免只对一句话调参**。
+- **结果**：
+  | 配置 | 用户那句 chrF↑ | 往返均值 chrF↑ | 往返 16 次翻译耗时 |
+  |---|---|---|---|
+  | beam 4（原默认） | 28.96 | 68.56 | 3.2 s |
+  | **beam 10（已采用）** | 31.06 | **71.66** | 4.6 s |
+  | beam 8 | 31.27 | 69.00 | 4.0 s |
+  | beam 12 | 31.06 | 71.66 | 5.5 s |
+  | beam 14 | 27.95 | 72.37 | 5.5 s |
+  | beam 16 | 25.01 | — | — |
+  | float32 | 24.52 | 64.14 | 8.2 s |
+  | int8_float32 | 28.96 | — | — |
+  逐句胜平负（vs beam 4）：beam 10 为 **2 胜 5 平 1 负**，beam 8 为 1 胜 5 平 2 负。
+- **采用 beam 10**：往返均值比默认高 **+4.5%**、用户那句也更好，而 beam≥14 在用户那句上反而明显退化（过度搜索），float32 全面更差（还会把 "Jason and Lucia" 整段留成英文）——说明该模型是 int8 量化训练/发布的，反量化反而伤质量。代价约 0.29 s/句（默认 0.25 s），相对模型加载可忽略。
+- **实际效果（用户那句，en→zh）**：调参前「…一直知道 甲板堆积在他们身上…犯罪阴谋中…」→ 调参后「…**一直都知道** 甲板堆积在他们身上…犯罪阴谋**之中**…」——"都知道"、"之中" 与标准译文更接近，但 **"the deck is stacked against them" 仍被直译成"甲板堆积在他们身上"**（标准译文的"处于不利地位"），"an easy score" 仍译成"容易的分数"。
+- **诚实结论**：调参只能带来这一量级的改善。**余下的差距属模型容量**——Argos 的 en↔zh 是 ~77M 参数、78 MB 的 OPUS-MT int8 模型，而标准译文大概率来自大得多的商用模型。要接近它需要换模型（更重的依赖与体积），已超出"微调参数"的范围，故按用户"实在不行就算了"在此收手。
+- **顺带修复**：桥接进程的 stderr（引擎横幅、解码参数、告警）此前**从未接入应用日志**——现已路由到 `app.log` 的 `translate[engine]:` 前缀，日志里可直接看到 `decoding: beam_size=10 compute_type=auto ...`，这次调参就是靠它确认参数真正生效的。同时修掉一个噪声：关机应答也带 id=0，原逻辑会把它误报成"engine reported a startup problem"。
+- **未做**：`length_penalty` / `num_hypotheses` 需改上游源码，未改；未在低配机器上测 beam 10 的耗时上限。
+
+
+## 修复：翻译逐词输出、无法成句（2026-10-04，用户报告）
+
+**症状**：用户截图（GTA6 海报风大字排版）后点翻译，原文框里每个单词各占一行，译文是「副总统 / 更多 / 超过 / 永远 / 页1 …」这样的孤立单词堆叠。
+
+- **根因（两层，缺一不可）**：
+  1. **PP-OCRv5 检测的是"框"，不是"行"**。字距/词距稍大（海报、标题、任何带字间距的排版）时它会**一个单词吐一个框**；而 `OcrService.ExtractLines` 把每个框当成一行、`Text` 用换行拼接 → 文本变成每词一行。实测：把一段 4 行英文渲染成图，OCR 返回 **36 个"行"**（修复后 4 行）。
+  2. **Argos 把每个换行都当作一个段落**：`split_into_paragraphs` 就是 `input_text.split("\n")`，逐个翻译。于是 36 行 = 36 次独立翻译 = 逐词垃圾。来源已核对上游源码（`argostranslate/translate.py`）。
+- **修复 1（OCR 层，`Core/Ocr/OcrTextLayout.cs`）**：`OcrLine` 新增 `Bounds`（在 `ExtractLines` 里从 `TextBlock.BoxPoints` 取包围盒），新增 `OcrTextLayout.Assemble`：**垂直重叠 ≥ 50% 的碎片归为同一视觉行**，行内按 X 排序，拉丁碎片用空格连接、**CJK 碎片直接相连**（两个汉字之间插空格是错的）。无几何信息或只有单个碎片时原样返回——**整行检测的常规情况完全不受影响**（harness 有断言）。OCR 结果窗与译文现在都按真实行显示。
+- **修复 2（翻译层，`Core/Translation/TextReflow.cs`）**：翻译前把硬换行的屏幕文本**还原成段落**——空行 / 句末标点（`.!?;。！？；…`，含尾随引号括号）/ 列表标记（•·-*、`1.`、`a)`）才另起段；行尾连字符按断词处理（`exam-`+`ple` → `example`）；CJK 边界不加空格。**视觉换行对翻译没有意义**，故不保留。`TranslationFlow.TranslateAsync` 统一走这条路，捕捉/编辑器/反向翻译/`--translate-test` 四个入口一致。
+- **差分验证**：修复前 `harness ocr` 对同一张 4 行海报图返回 36 行；修复后 4 行。端到端（图 → OCR → 翻译）：输入 3 行硬换行英文，`source=` 显示已合并的**单个段落**，`result=` 为完整中文句子（不再是单词堆叠）。
+- **回归门禁**：harness 新增 **13 条断言**（`OcrLayoutChecks` / `TextReflowChecks`：同行合并、跨行不合并、CJK 不加空格、无几何直通、空行分段、句末分段、连字符重连、列表分段、空输入安全），`harness core` 与 `harness ocr` 均 ALL PASSED；build 0/0；i18n 385=385；`--smoke` 退出码 0。
+- **已知取舍**：① 同一视觉行上的**多列排版**（如"标签 … 值"）现在会被合并成一行并用空格分隔——对阅读与翻译通常更合理，但列结构信息丢失；② 不以标点结尾的**短标题**会与紧随的正文合成一段（启发式未做行长判断，宁可少切不可多切——多切正是本次 bug 的来源）。以上两点均未做真机长尾测试。
+
+
+## 翻译功能（Argos Translate，2026-10-03）
+
+**需求**：在 OCR 按钮右边加翻译功能，采用 Argos Translate 开源项目（从 GitHub 取），UI 仿照 OCR。
+
+- **三个入口**：截图叠加层工具条 OCR 右边新增**翻译**按钮（`OverlayIntent.Translate` → `AfterCaptureAction.TranslateText`）；编辑器底栏「翻译」（在「文字识别」右边）；**设置 → 截图后动作** 下拉新增「翻译」（枚举末尾追加，索引与下拉项 1:1，旧配置不受影响）。三者都走 `RunTranslateCapture` / `EditorWindow.RunTranslate`：先 OCR 取字，再翻译。
+- **引擎形态（关键决策）**：Argos Translate 是 Python 库（CTranslate2 + SentencePiece），.NET 无可用绑定（NuGet 上只有 Whisper 专用包装）。故**打包一个便携版 CPython 3.14.6 + 依赖**放在程序目录 `translate\`，由 `tools\build-argos-engine.ps1` 生成（约 173 MB / 1489 文件，**已加入 .gitignore**，不入库）；.NET 侧用**长驻子进程 + JSON 行协议**驱动（`tools/argos_bridge.py` ↔ `Core/Translation/TranslationService.cs`），进程常驻以保住热态（冷加载模型数十秒，热态 0.1–0.5 秒）。
+- **不装 spacy / stanza**：`argostranslate` 的 `pip` 依赖里 `spacy`、`stanza` 很重（stanza 会拖进 PyTorch ~1 GB），但 GitHub master 的 `sbd.py` 把两者**都包在 try/except ImportError 里**，无 stanza 时自动回退 MiniSBD。**注意 PyPI 上 1.11.0 的 wheel 与 master 不同**（wheel 里 `import stanza` 未加保护，直接 ImportError 崩溃）——因此构建脚本**从 GitHub codeload 取 master 源码**而非 pip 安装 argostranslate，这也正好符合"自己去 github pull"的要求。
+- **语言包按需下载**：`.argosmodel`（zip，内含 `metadata.json` + CT2 模型 + sentencepiece 模型）下载到 `%LOCALAPPDATA%\Modern-ScreenShot\translate\packages\`。C# 侧自行解压（等价于 argostranslate 的 `install_from_path`），下载先落 `.part`、**解压前校验 zip 可读且 metadata 的 from/to 与请求一致**——截断文件或错误页不可能被当成语言包装上。目录来自 argospm-index（带本地缓存，离线时回退内置 en↔zh 两条）。
+- **CDN 403 坑**：`argos-net.com` 的 CDN 对 **Python 默认 UA（`Python-urllib/x.y`）返回 403**。C# 下载器显式带 `ModernScreenShot/1.0`（实测放行），bridge 里若用 urllib 也需自定 UA。
+- **MiniSBD 句子模型已内置**：否则首次翻译会去 GitHub 下载每语言一个小 ONNX 模型，使"离线"功能首次仍需联网。构建脚本内置 `en.onnx` / `zh-hans.onnx`（共 0.77 MB），bridge 在导入后把它们播种到 Argos 缓存目录（实测清空缓存后能自动补齐）。
+- **自动识别原文语言**（设置项，默认开）：按识别文字的书写系统判断（`Core/Translation/LanguageDetector`：CJK 字符占比）——中文截图自动 zh→en、英文截图自动 en→zh，检测方向未装语言包时回退到设置方向，并用 `RememberLastPair` 记住实际用过的方向。
+- **结果窗口** `Translation/TranslationResultWindow`：与 `OcrResultWindow` 同构（相同 `AppTitleBar`、相同只读文本框与底部状态栏/复制按钮语义），上方原文、下方译文，另有 `⇄ 反向翻译`（同一段文字反向重译）。**踩坑**：`Style="{StaticResource RowSubtitle}"` 是 SettingsWindow 的**窗口级**资源，独立窗口取不到，会让 XAML 加载抛 `Cannot find resource named 'RowSubtitle'`——已改为内联 FontSize/Foreground。该缺陷正是被 `--smoke` 拦下的（smoke 会实例化 TranslationResultWindow）。
+- **客观门禁（全部通过）**：build 0 警告 0 错误；i18n 385=385；`--smoke` 退出码 0（含新窗口实例化 + 引擎存在性日志）；`harness ocr` 全 PASS（OCR 无回归）；`--translate-install=en-zh` / `=zh-en` 退出码 0（走真实 CDN 下载，各约 70 MB）；`--translate-test` 退出码 0，en→zh 与 zh→en 双向均正确，热态 442–624 ms；`--render-translate` 生成的窗口快照经目检（`tools/verify_out/ui/translate.png`）；编辑器快照确认「翻译」按钮出现在「文字识别」右边（`editor.png`）。
+- **新增自检开关**：`--translate-test[=文本]`（端到端翻译，退出码 0 为通过，结果写 `%LOCALAPPDATA%\Modern-ScreenShot\logs\translate-test.txt`）、`--translate-install[=from-to]`（真实下载并安装语言包）、`--render-translate`（渲染结果窗）。三者都在 shell 启动前执行，不依赖托盘。
+- **未验证 / 待真机手测**：
+  - **叠加层工具条**渲染不了（无头环境，与既有 overlay 验证限制相同）。翻译按钮的图标与文案已在编辑器快照中确认渲染正确，工具条一行是紧挨 OCR 按钮的同构调用，但**"按钮确实出现在 OCR 右边且点击后走通流程"仍需真机点一次**。
+  - 首次翻译冷启动耗时较长（本机实测首次 42 s、之后同进程 442 ms）——主要是一次性的模型加载/首次落盘，非每次开销；**未在低配机器上测过上限**。
+  - 语言包下载失败/中断、设置页删除语言包后的引擎重启、自动识别在**中英混排**下的取舍（当前阈值 CJK×2 ≥ 拉丁）只做了代码审查与上述用例，未做长尾测试。
+- **翻译质量是模型本身的限制，不是集成缺陷**：zh→en 对「截图工具支持区域截图、窗口截图和滚动长截图。」会得到 "The amplogram tool supports regional amplograms…"（「截图」被译成 amplogram）。**差分实验证明**：绕开本项目的 bridge 与 .NET、直接用上游 argostranslate 跑同一句，输出**逐字相同**；而单词「截图」→ "Screenshot"、「截图工具」→ "Screenshot Tool" 均正确，属 OPUS-MT 模型在长句上下文下的固有问题，本项目不做改写（保持与上游一致）。
+
+
 ## 叠加层操作提示面板（F1）+ 精确操作（Snipaste 风格，2026-10-01，未提交）
 
 - **已实现**：帮助卡片**会话开始即在激活显示器左下角自动显示**（用户反馈"Snipaste 直接放左下角了你还按 F1"后从"仅 F1 呼出、底部居中"改为自动显示 + 左下角；F1 仍可开关；首次点击任意处收起；工具栏出现时卡片自动上移避让；Esc **不再**关卡片、始终直接取消截图——自动显示后"Esc 先关面板"会变成按两次才能取消的陷阱）；WASD 移动真实光标 1px（SetCursorPos + 走 OnMove 同一路径，悬停/拖拽/放大镜同步跟随）；Tab 本会话内切换 窗口/元素 检测（顶部 1.5s 提示）；1/2 选择 上层/下层 界面元素（复用 WindowEnumerator DWM 边界管线）；Ctrl+A 选区=当前整屏；Shift+R 使用上次截图区域（**R 已被矩形工具占用，只绑 Shift+R**）；F5 重新截取冻结帧；` / ! 显示/隐藏 冻结帧中的鼠标指针（按当前「捕获光标」设置取反）。

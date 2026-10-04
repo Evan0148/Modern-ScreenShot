@@ -1,4 +1,4 @@
-﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- App -->
@@ -61,6 +61,7 @@
     <sys:String x:Key="Action.CopyColor">Copy color</sys:String>
     <sys:String x:Key="Action.Stop">Stop</sys:String>
     <sys:String x:Key="Action.Ocr">Text OCR</sys:String>
+    <sys:String x:Key="Action.Translate">Translate</sys:String>
 
     <!-- Toast -->
     <sys:String x:Key="Toast.Copied">Copied to clipboard</sys:String>
@@ -89,7 +90,6 @@
     <sys:String x:Key="Tool.Ellipse">Ellipse (E)</sys:String>
     <sys:String x:Key="Tool.Line">Line (L)</sys:String>
     <sys:String x:Key="Tool.Arrow">Arrow (A)</sys:String>
-    <sys:String x:Key="Tool.Geometry">Geometry (R/E/L/A, hold for shapes)</sys:String>
     <sys:String x:Key="Tool.Pen">Pen (P)</sys:String>
     <sys:String x:Key="Tool.Text">Text (T)</sys:String>
     <sys:String x:Key="Tool.Step">Step number (N)</sys:String>
@@ -105,8 +105,6 @@
     <sys:String x:Key="Prop.Color">Color</sys:String>
     <sys:String x:Key="Prop.Thickness">Thickness</sys:String>
     <sys:String x:Key="Prop.Fill">Fill</sys:String>
-    <sys:String x:Key="Prop.Stroke">Stroke</sys:String>
-    <sys:String x:Key="Prop.Solid">Solid</sys:String>
     <sys:String x:Key="Prop.FontSize">Font size</sys:String>
     <sys:String x:Key="Prop.Opacity">Opacity</sys:String>
     <sys:String x:Key="Prop.Strength">Strength</sys:String>
@@ -190,6 +188,7 @@
     <sys:String x:Key="Settings.After.Pin">Pin to screen</sys:String>
     <sys:String x:Key="Settings.After.Thumbnail">Floating thumbnail</sys:String>
     <sys:String x:Key="Settings.After.Ocr">Text OCR</sys:String>
+    <sys:String x:Key="Settings.After.Translate">Translate</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">Delay (seconds)</sys:String>
     <sys:String x:Key="Settings.AutoElementDetection">Auto-detect and snap to elements</sys:String>
     <sys:String x:Key="Settings.ShowMagnifier">Show magnifier</sys:String>
@@ -252,6 +251,28 @@
     <sys:String x:Key="Settings.Ocr.AutoCopy">Copy text after recognition</sys:String>
     <sys:String x:Key="Settings.Ocr.AutoCopy.Sub">Put the recognized text on the clipboard as soon as it is ready.</sys:String>
 
+    <!-- Translation settings -->
+    <sys:String x:Key="Settings.Group.Translate">Translation (Hy-MT2, fully offline)</sys:String>
+    <sys:String x:Key="Settings.Translate.Language">Translate into</sys:String>
+    <sys:String x:Key="Settings.Translate.Language.Sub">Target language. Translation runs locally and offline; nothing is uploaded.</sys:String>
+    <sys:String x:Key="Settings.Translate.AutoDetect">Detect the source language</sys:String>
+    <sys:String x:Key="Settings.Translate.AutoDetect.Sub">When the recognized text is already in the target language, translate into the other of Chinese/English instead — a Chinese screenshot still comes out in English, with no manual switch.</sys:String>
+    <sys:String x:Key="Settings.Translate.Model">Translation model</sys:String>
+    <sys:String x:Key="Settings.Translate.Installed">Installed ({0} MB); works offline and covers all 36 languages.</sys:String>
+    <sys:String x:Key="Settings.Translate.NotInstalled">Not downloaded yet; translating needs the model (about 1.1 GB, once, covering all 36 languages).</sys:String>
+    <sys:String x:Key="Settings.Translate.Partial">A previous download is incomplete ({0:0}% done); clicking Download resumes it.</sys:String>
+    <sys:String x:Key="Settings.Translate.Download">Download model</sys:String>
+    <sys:String x:Key="Settings.Translate.Downloading">Downloading {0:0}%</sys:String>
+    <sys:String x:Key="Settings.Translate.DownloadFailed">Download failed: {0}</sys:String>
+    <sys:String x:Key="Settings.Translate.Downloaded">Model installed; it works offline from now on.</sys:String>
+    <sys:String x:Key="Settings.Translate.Remove">Remove model</sys:String>
+    <sys:String x:Key="Settings.Translate.RemoveConfirm">Remove the translation model? Translating again will need a fresh 1.1 GB download.</sys:String>
+    <sys:String x:Key="Settings.Translate.Engine">Translation engine</sys:String>
+    <sys:String x:Key="Settings.Translate.EngineMissing">Translation engine missing: no llama folder next to the executable. Run tools\build-llama-runtime.ps1 to regenerate it before packaging.</sys:String>
+    <sys:String x:Key="Settings.Translate.EngineVersion">{0}</sys:String>
+    <sys:String x:Key="Settings.Translate.CopyAfter">Copy the translation automatically</sys:String>
+    <sys:String x:Key="Settings.Translate.CopyAfter.Sub">Put the translated text on the clipboard as soon as it is ready.</sys:String>
+
     <!-- History -->
     <sys:String x:Key="History.Title">History</sys:String>
     <sys:String x:Key="History.Empty">No screenshots yet</sys:String>
@@ -285,7 +306,7 @@
     <sys:String x:Key="Overlay.HelpRefresh">Re-capture the screen</sys:String>
     <sys:String x:Key="Overlay.HelpCursorToggle">Show / hide the mouse pointer</sys:String>
     <sys:String x:Key="Overlay.HelpCopyColor">Copy the color under the pointer</sys:String>
-    <sys:String x:Key="Overlay.HelpTools">Annotation tools (inside a selection): V select · R rectangle · E ellipse · L line · A arrow · P pen · H highlighter · T text · N step · M mosaic · X eraser (hold Geometry for shape/style choices)</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">Annotation tools (inside a selection): V select · R rectangle · E ellipse · L line · A arrow · P pen · H highlighter · T text · N step · M mosaic · X eraser</sys:String>
     <sys:String x:Key="Overlay.HelpClose">F1 to show / hide · click anywhere to close</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionElements">Detecting UI elements</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionWindows">Detecting windows</sys:String>
@@ -328,6 +349,27 @@
     <sys:String x:Key="Ocr.ModelFast">fast model</sys:String>
     <sys:String x:Key="Ocr.ModelAccurate">accurate model</sys:String>
     <sys:String x:Key="Ocr.FallbackFast">accurate model not installed; used the fast model</sys:String>
+
+    <!-- Translation (Hy-MT2) -->
+    <sys:String x:Key="Translate.Title">Translation</sys:String>
+    <sys:String x:Key="Translate.Source">Original (recognized text)</sys:String>
+    <sys:String x:Key="Translate.Result">Translation</sys:String>
+    <sys:String x:Key="Translate.CopyResult">Copy translation</sys:String>
+    <sys:String x:Key="Translate.Swap">⇄ Reverse</sys:String>
+    <sys:String x:Key="Translate.Swap.Tip">Translate the same text again in the opposite direction</sys:String>
+    <sys:String x:Key="Translate.Status">into {0} · {1:0.00} s · offline</sys:String>
+    <sys:String x:Key="Translate.Empty">(nothing to translate)</sys:String>
+    <sys:String x:Key="Translate.Running">Recognizing and translating… (the first run loads the model; this can take a while)</sys:String>
+    <sys:String x:Key="Translate.Done">Translated · {0:0.00} s</sys:String>
+    <sys:String x:Key="Translate.Failed">Translation failed: {0}</sys:String>
+    <sys:String x:Key="Translate.Unavailable">Translation is unavailable; check that the model has been downloaded.</sys:String>
+    <sys:String x:Key="Translate.Cancelled">Translation cancelled</sys:String>
+    <sys:String x:Key="Translate.EngineMissing">The translation engine is missing. Reinstall the app (the engine lives in the llama folder next to the executable).</sys:String>
+    <sys:String x:Key="Translate.NeedModelTitle">Translation model required</sys:String>
+    <sys:String x:Key="Translate.NeedModelBody">Offline translation needs the Hy-MT2 model first (about 1.1 GB, downloaded once; it then covers 36 languages and never needs the network again). Download it now?</sys:String>
+    <sys:String x:Key="Translate.Downloading">Downloading the translation model · {0:0}% (resumable)</sys:String>
+    <sys:String x:Key="Translate.DownloadDone">The translation model is installed and works offline.</sys:String>
+    <sys:String x:Key="Translate.DownloadFailed">Translation model download failed: {0}</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot is running</sys:String>

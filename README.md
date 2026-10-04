@@ -2,12 +2,6 @@
 
 简洁现代的 Windows 截图工具。区域/窗口/滚动长截图，内置标注编辑器、效果合成（阴影/倒影/圆角卡片）、贴图与历史记录，托盘常驻 + 全局热键，内置离线 OCR 文字识别。
 
-[![CI](https://github.com/Evan0148/Modern-ScreenShot/actions/workflows/ci.yml/badge.svg)](https://github.com/Evan0148/Modern-ScreenShot/actions/workflows/ci.yml)
-
-## 构建与 CI
-
-用 Visual Studio 或命令行 `dotnet build ModernScreenShot.sln -c Release`（.NET 10 SDK，仅 Windows）。**每次推送（任意分支）**都会执行与本地相同的四道门禁：Release 构建、harness 算法测试（core + 离线 OCR，模型已随仓库）、中英文键数对齐检查、`--smoke`（解析全部服务并离屏实例化各窗口）；通过后自动把一份 self-contained win-x64 zip（解压即用）以 **Draft release** 挂到 [Releases](https://github.com/Evan0148/Modern-ScreenShot/releases) 页，命名规则见 [Agent.md](Agent.md)：开发版 = `<最近v*标签或0.0.0>-dev.<构建号>+g<短SHA>`（如 `0.0.0-dev.12+gc795cdc`，同一 commit 恒定），版本号同时烙进二进制（设置→关于、启动日志可见）；要发正式版时打个 `v*` 标签推送即可（SemVer：破坏性/功能/修复）。
-
 ## 功能
 
 ### 截图模式（托盘左键 = 区域截图；右键菜单含全部模式）
@@ -28,13 +22,12 @@
 - 第二次启动会自动把命令转发给已运行实例（单实例）。
 - **多显示器**：编辑器打开在**截图所在的显示器**正中央，并按该显示器的工作区与 DPI 钳制窗口尺寸（在低分辨率副屏上自动缩小，不会超出屏幕）。
 - 区域截图：拖拽框选，悬停自动高亮窗口/子窗口（单击即选），**悬停桌面空白处高亮整个屏幕（单击截取整屏，Snipaste 同款）**，8 向缩放手柄、方向键微调（Shift=10px）、8× 放大镜（坐标 + HEX 取色，按 `C` 复制颜色）、`Enter`/双击确认、`Esc`/右键取消；截图叠加层内按 `F1` 查看全部快捷键（WASD 微移指针、Tab 切换窗口/元素检测、`1`/`2` 上/下层元素、`Ctrl+A` 整屏、`Shift+R` 上次区域、`F5` 刷新、`` ` ``/`!` 光标显隐）。
-- **Snipaste 式内联标注**：框选后直接在叠加层上标注，无需打开编辑器。工具条提供 选择/几何/画笔/荧光笔/文字/序号/马赛克/橡皮擦（快捷键 V/R/E/L/A/P/H/T/N/M/X），`Ctrl+Z`/`Ctrl+Y` 撤销重做；点「编辑」或 `Enter` 进入编辑器可继续修改这些标注（矢量保留）。
-- **几何合并工具（二级/三级菜单）**：矩形/椭圆/直线/箭头合并为一个「几何」按钮——点一下直接用上次形状，**长按 ~0.4s** 弹出菜单：二级为四种形状（悬停切换），三级为样式变体（矩形/椭圆 → 描边/填充，直线/箭头 → 实线/虚线），点选即应用并激活；快捷键 R/E/L/A 不变，所选形状记入设置。
+- **Snipaste 式内联标注**：框选后直接在叠加层上标注，无需打开编辑器。工具条提供 选择/矩形/椭圆/直线/箭头/画笔/荧光笔/文字/序号/马赛克/橡皮擦（快捷键 V/R/E/L/A/P/H/T/N/M/X），`Ctrl+Z`/`Ctrl+Y` 撤销重做；点「编辑」或 `Enter` 进入编辑器可继续修改这些标注（矢量保留）。
 - **每工具二级选项条**：选中某个标注工具后，主工具条下方浮出该工具专属选项——线条粗细预设、填充/虚线/加粗开关、字号与序号半径预设、马赛克模式与强度、以及取色调色板；所选样式记入设置，下次截图沿用。
 - **橡皮擦**：选橡皮擦（`X`）后在选区内拖过某条标注即可删除它，一次拖动 = 一步撤销。
 
 ### 编辑器（截图后默认进入）
-- 工具：选择(V) 几何(R/E/L/A，长按出形状/样式菜单) 画笔(P) 文字(T) 序号(N) 荧光笔(H) 马赛克(M) 模糊(B) 聚光灯(S) 放大镜(G) 裁剪(C) 橡皮擦(X)。
+- 工具：选择(V) 矩形(R) 椭圆(E) 直线(L) 箭头(A) 画笔(P) 文字(T) 序号(N) 荧光笔(H) 马赛克(M) 模糊(B) 聚光灯(S) 放大镜(G) 裁剪(C) 橡皮擦(X)。
 - `Ctrl+Z` / `Ctrl+Y` 撤销重做；`Del` 删除；橡皮擦拖过标注即删；`Ctrl+C` 复制成品；`Ctrl+S` 保存；`Ctrl+Shift+S` 另存为；`Ctrl+P` 贴到屏幕。
 - 马赛克/模糊实时预览（直接调用 Core 像素算法）；聚光灯多区域联合打光；放大镜圆形标注。
 - 裁剪为非破坏性，导出时生效。
@@ -46,6 +39,17 @@
 - **两档精度可选**（设置 → 截图 → OCR）：**快速**（内置 mobile 模型，热态约 60ms/张 1080p 截图，开箱即用）；**精确**（PP-OCRv5 server 模型，中文更准，热态约 0.4s，需一次性下载约 165 MB，之后同样离线）。
 - 识别完成后自动复制文字到剪贴板（可关），并弹出结果窗口（可选中/再复制，`Esc` 关闭）。
 - 模型文件随应用发布在 `models\v5\`；精确模型下载到 `%LOCALAPPDATA%\Modern-ScreenShot\models\ocr\`。
+
+### 翻译（Hy-MT2，完全离线）
+- 三个入口，与 OCR 并排：截图叠加层工具条的**翻译**按钮（OCR 按钮右边，框选后直接「识别 → 翻译」）、编辑器底栏「翻译」（翻译当前画布成品），以及 **设置 → 输出 → 截图后动作** 里的「翻译」。
+- 引擎为 [Hy-MT2-1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B)（腾讯混元，Apache-2.0，专为翻译训练的 18 亿参数模型），推理用 [llama.cpp](https://github.com/ggml-org/llama.cpp)（MIT，纯 CPU）。纯本地运行，不联网、不上传。
+- 结果窗口与 OCR 结果窗口同构：上方原文、下方译文，`复制译文` 一键入剪贴板（可设为自动复制），`⇄ 反向翻译` 用相反方向重译同一段文字，`Esc` 关闭。
+- **模型按需下载**：单个约 1.08 GB 的 GGUF 覆盖**全部 36 种语言、双向**（旧方案是每个语言方向一个 ~70 MB 语言包）。支持**断点续传**：下载中断后再点一次会从断点继续。首次点击翻译若未安装会直接询问是否下载，也可在 **设置 → 截图 → 翻译** 里预装/删除。
+- **自动识别原文语言**（默认开）：识别到的文字如果已经是目标语言，就改译成中英的另一方——中文截图自动出英文，英文截图自动出中文，无需手动切换。
+- **按段落/句子翻译**：OCR 的检测框会按几何位置还原成真实行（同一行的词碎片合并，中英文分别用空格/直连），翻译前再把硬换行的屏幕文本还原成段落——因为模型是按整段提示词翻译的，保留换行会漏出断句残渣。
+- 引擎随应用发布在 `llama\`（23 个文件 / 42 MB，由 `tools\build-llama-runtime.ps1` 生成，不入库）；模型下载到 `%LOCALAPPDATA%\Modern-ScreenShot\translate\models\`。
+- 首次翻译需加载模型（约 3–5 秒），之后热态：一句话约 0.7–1 秒，长段落按 **~21 token/秒** 折算。为避免常驻占内存，**闲置 5 分钟会自动卸载引擎**（模型约占 2 GB 内存），下次翻译再自动加载。
+- 本机实测质量显著优于旧的 Argos/OPUS-MT 引擎：习语、漏词、逻辑连接词与标点都明显更准（对照与数据见 `KNOWN_ISSUES.md`）。
 
 ### 效果（编辑器底栏“效果”按钮）
 - 预设：简洁（默认）、轻盈悬浮、浓重立体、镜面倒影、渐变卡片、无效果；可保存/删除自己的预设。
@@ -75,7 +79,14 @@ ModernScreenShot.App.exe --capture region|fullscreen|all|active|window|last|scro
 ```
 
 - 依赖：.NET 10 Desktop Runtime（framework-dependent 发布）。`publish\ModernScreenShot.App.exe` 为发布产物。
-- 算法自检：`dotnet run --project tools/Harness -c Release -- core`（31 项断言）；OCR 端到端自检：`... -- ocr [图片路径]`（合成图断言中文+标点识别，可选再识别一张真实截图并输出到 `out/ocr-file.txt`）；精确模型下载自检：`... -- ocr-download`（约 165 MB）。
+- **翻译引擎**（llama.cpp，42 MB / 23 个文件）不在仓库里，需要先跑一次 `tools\build-llama-runtime.ps1` 生成到 `src\ModernScreenShot.App\Assets\llama\`；缺失时应用照常构建运行，只把翻译标记为不可用。
+- **免运行时打包**（用户机器无需安装任何 .NET，双击即用）：
+  ```
+  dotnet publish src\ModernScreenShot.App\ModernScreenShot.App.csproj -c Release -r win-x64 --self-contained true -o publish\
+  ```
+  产物约 319 MB / 306 个文件；剔除 `*.pdb`（`libSkiaSharp.pdb` 单独 80 MB）与 `*.lib` 后约 239 MB，压缩为 `Modern-ScreenShot-v1.0.0-win-x64-selfcontained.zip` 约 100 MB。
+- 算法自检：`dotnet run --project tools/Harness -c Release -- core`（66 项断言）；OCR 端到端自检：`... -- ocr [图片路径]`（合成图断言中文+标点识别，可选再识别一张真实截图并输出到 `out/ocr-file.txt`）；精确模型下载自检：`... -- ocr-download`（约 165 MB）。
+- 翻译自检：`ModernScreenShot.App.exe --translate-test[=文本]`（端到端翻译，退出码 0 为通过，结果写 `%LOCALAPPDATA%\Modern-ScreenShot\logs\translate-test.txt`，可用 `--translate-to=<语言码>` 指定目标语言）；`--translate-install`（真实下载约 1.08 GB 模型，支持断点续传）；`--render-translate`（渲染结果窗）。
 - 多语言检查：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-i18n.ps1`。
 
 ## 文件位置

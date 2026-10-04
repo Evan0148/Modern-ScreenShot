@@ -5,7 +5,6 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Editor;
 using ModernScreenShot.App.Interop;
@@ -106,17 +105,7 @@ internal sealed class OverlayWindow : Window
         PreviewMouseLeftButtonUp += OnPreviewLeftButtonUp;
         PreviewMouseMove += OnPreviewMouseMove;
         PreviewMouseRightButtonDown += (_, e) => e.Handled = true;
-        PreviewMouseRightButtonUp += (_, e) =>
-        {
-            e.Handled = true;
-            // Right-click over the open flyout (or the strip) dismisses it instead of the session.
-            if (_geometryMenu is not null && (IsOverGeometryMenu(e) || IsOverToolbar(e)))
-            {
-                CloseGeometryMenu();
-                return;
-            }
-            _session.Cancel();
-        };
+        PreviewMouseRightButtonUp += (_, e) => { e.Handled = true; _session.Cancel(); };
     }
 
     /// <summary>Window's current DPI scale (physical px per DIP).</summary>
@@ -203,13 +192,6 @@ internal sealed class OverlayWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (_textOverlay is not null && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase) return; // typing
-        // Esc with the geometry flyout open only dismisses the flyout; a second Esc cancels the session.
-        if (e.Key == Key.Escape && _geometryMenu is not null)
-        {
-            e.Handled = true;
-            CloseGeometryMenu();
-            return;
-        }
         // F1 toggles this window's help card — only the monitor window that received the key shows it.
         if (e.Key == Key.F1 && Keyboard.Modifiers == ModifierKeys.None)
         {
@@ -260,13 +242,6 @@ internal sealed class OverlayWindow : Window
             return;
         }
         if (IsOverToolbar(e)) return;
-        if (_geometryMenu is not null)
-        {
-            if (IsOverGeometryMenu(e)) return; // the flyout rows handle their own clicks
-            CloseGeometryMenu();               // the first click outside only dismisses the flyout
-            e.Handled = true;
-            return;
-        }
         var p = ToVirtual(e.GetPosition(_renderer));
         if (e.ClickCount >= 2) _session.OnDoubleClick(this, p);
         else
@@ -282,7 +257,7 @@ internal sealed class OverlayWindow : Window
         // the visible toolbar (the natural end of a bottom-right resize drag). Swallowing it would
         // leave the selection glued to the cursor with no button held — finish the drag instead;
         // the toolbar early-return only applies to plain uncaptured clicks.
-        if (!IsMouseCaptured && (IsOverToolbar(e) || IsOverGeometryMenu(e))) return;
+        if (!IsMouseCaptured && IsOverToolbar(e)) return;
         _session.OnLeftUp(this, ToVirtual(e.GetPosition(_renderer)));
         if (IsMouseCaptured) ReleaseMouseCapture();
     }
@@ -359,14 +334,6 @@ internal sealed class OverlayWindow : Window
     private Button _undoButton = null!, _redoButton = null!;
     private TextBox? _textOverlay;
 
-    // Merged "几何" entry: one button for the four geometry tools. A plain click activates the
-    // last-used shape, a ~400ms press opens the shape/variant flyout (see GeometryShapeMenu).
-    private Button _geometryButton = null!;
-    private EditorTool _lastGeometry = EditorTool.Rect;
-    private GeometryShapeMenu? _geometryMenu;
-    private readonly DispatcherTimer _geometryHoldTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
-    private bool _geometryHoldFired;
-
     // Options bar: every control is built once with the toolbar and only its Visibility/IsEnabled/
     // background is touched afterwards — this runs on the overlay hot path (per rendered frame).
     private WrapPanel _optionsRow = null!;
@@ -390,7 +357,10 @@ internal sealed class OverlayWindow : Window
         void Sep() => panel.Children.Add(new Separator { Margin = new Thickness(2, 7, 2, 7) });
 
         AddToolButton(panel, EditorTool.Select, SelectIcon());
-        AddGeometryButton(panel);
+        AddToolButton(panel, EditorTool.Rect, ShapeIcon(new RectangleGeometry(new Rect(2.5, 4.5, 13, 9))));
+        AddToolButton(panel, EditorTool.Ellipse, ShapeIcon(new EllipseGeometry(new Point(9, 9), 7, 5.5)));
+        AddToolButton(panel, EditorTool.Line, ShapeIcon(Geo(g => { g.BeginFigure(new Point(3, 14), false, false); g.LineTo(new Point(16, 2), true, false); })));
+        AddToolButton(panel, EditorTool.Arrow, ShapeIcon(ArrowGeometry()));
         AddToolButton(panel, EditorTool.Pen, GlyphIcon("\uE70F"));
         AddToolButton(panel, EditorTool.Highlighter, GlyphIcon("\uE7E6"));
         AddToolButton(panel, EditorTool.Text, TextIcon("T"));
@@ -407,6 +377,7 @@ internal sealed class OverlayWindow : Window
         panel.Children.Add(MakeIconButton("\uE74E", "Action.Save", (_, _) => _session.Confirm(OverlayIntent.Save)));
         panel.Children.Add(MakeIconButton("\uE718", "Action.Pin", (_, _) => _session.Confirm(OverlayIntent.Pin)));
         panel.Children.Add(MakeElementIconButton(EditorIcons.Ocr(), "Action.Ocr", (_, _) => _session.Confirm(OverlayIntent.Ocr)));
+        panel.Children.Add(MakeElementIconButton(EditorIcons.Translate(), "Action.Translate", (_, _) => _session.Confirm(OverlayIntent.Translate)));
         panel.Children.Add(MakeIconButton("\uE73E", "Action.Edit", (_, _) => _session.Confirm(OverlayIntent.Edit)));
         panel.Children.Add(MakeIconButton("\uE711", "Action.Cancel", (_, _) => _session.Cancel()));
 
@@ -438,106 +409,6 @@ internal sealed class OverlayWindow : Window
         panel.Children.Add(button);
         return button;
     }
-
-    /// <summary>The merged geometry entry: all four shape tools map to this one button (so the
-    /// active-tool highlight and hotkey sync work unchanged), the icon shows the last-used shape,
-    /// a plain click toggles it, and holding ~400ms opens the shape/variant flyout.</summary>
-    private void AddGeometryButton(WrapPanel panel)
-    {
-        _lastGeometry = GeometryTools.Parse(_session.Editor.GeometryTool);
-        _geometryButton = MakeIconButton(null, "Tool.Geometry", (_, _) => { }); // clicks are handled in Preview* below
-        _geometryButton.Content = EditorIcons.For(_lastGeometry);
-        _geometryButton.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            if (_geometryMenu is not null)
-            {
-                CloseGeometryMenu(); // a press on the button while open just dismisses the flyout
-                e.Handled = true;
-                return;
-            }
-            _geometryHoldFired = false;
-            _geometryHoldTimer.Stop();
-            _geometryHoldTimer.Start();
-        };
-        _geometryButton.PreviewMouseLeftButtonUp += (_, e) =>
-        {
-            _geometryHoldTimer.Stop();
-            bool fired = _geometryHoldFired;
-            _geometryHoldFired = false;
-            _geometryButton.ReleaseMouseCapture();
-            e.Handled = true; // Click is never used; release-after-hold only swallows the press
-            if (fired) return;
-            _session.Tool = _session.Tool == _lastGeometry ? null : _lastGeometry;
-        };
-        _geometryButton.MouseLeave += (_, _) => { if (!_geometryHoldFired) _geometryHoldTimer.Stop(); };
-        _geometryHoldTimer.Tick += (_, _) =>
-        {
-            _geometryHoldTimer.Stop();
-            _geometryHoldFired = true;
-            _geometryButton.ReleaseMouseCapture(); // let the release land on a flyout row
-            OpenGeometryMenu();
-        };
-        panel.Children.Add(_geometryButton);
-        foreach (var tool in GeometryTools.All) _toolButtons[tool] = _geometryButton;
-    }
-
-    private void OpenGeometryMenu()
-    {
-        if (_geometryMenu is not null) return;
-        _geometryMenu = new GeometryShapeMenu(
-            () => _session.Tool is { } tool && GeometryTools.IsGeometry(tool) ? tool : _lastGeometry,
-            tool => GeometryTools.UsesDash(tool) ? _session.Editor.DashedLine : _session.Editor.FillShape,
-            tool =>
-            {
-                RememberGeometryTool(tool);
-                _session.Tool = tool;
-            },
-            (tool, value) =>
-            {
-                RememberGeometryTool(tool);
-                if (GeometryTools.UsesDash(tool)) SetOption(e => e.DashedLine = value);
-                else SetOption(e => e.FillShape = value);
-                _session.Tool = tool;
-            });
-        _geometryMenu.CloseRequested += (_, _) => CloseGeometryMenu();
-        _toolbarLayer.Children.Add(_geometryMenu);
-        UiMotion.FadeIn(_geometryMenu, ms: 120);
-        PositionGeometryMenu();
-    }
-
-    private void CloseGeometryMenu()
-    {
-        if (_geometryMenu is null) return;
-        _toolbarLayer.Children.Remove(_geometryMenu);
-        _geometryMenu = null;
-    }
-
-    /// <summary>Anchors the flyout to the geometry button, above the toolbar strip when there is room.</summary>
-    private void PositionGeometryMenu()
-    {
-        if (_geometryMenu is null) return;
-        _geometryMenu.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var size = _geometryMenu.DesiredSize;
-        var origin = _geometryButton.TransformToVisual(_toolbarLayer).Transform(new Point(0, 0));
-        double x = Math.Clamp(origin.X, 4, Math.Max(4, ActualWidth - size.Width - 4));
-        double y = origin.Y - size.Height - 6;
-        if (y < 4) y = origin.Y + _geometryButton.ActualHeight + 6;
-        y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
-        Canvas.SetLeft(_geometryMenu, x);
-        Canvas.SetTop(_geometryMenu, y);
-    }
-
-    private void RememberGeometryTool(EditorTool tool)
-    {
-        if (tool == _lastGeometry) return;
-        _lastGeometry = tool;
-        _session.Editor.GeometryTool = tool.ToString();
-        _session.MarkOptionsChanged();
-        _geometryButton.Content = EditorIcons.For(tool);
-    }
-
-    private bool IsOverGeometryMenu(MouseButtonEventArgs e) =>
-        _geometryMenu is { } menu && e.OriginalSource is DependencyObject d && menu.IsAncestorOf(d);
 
     // ---- options bar (second toolbar row; one row per active tool) ----
 
@@ -847,16 +718,6 @@ internal sealed class OverlayWindow : Window
     /// <summary>Syncs tool highlight, undo/redo enablement and the options row with the session state.</summary>
     private void RefreshToolbarState()
     {
-        // A geometry tool picked through a hotkey (R/E/L/A) also becomes the last-used shape: the
-        // merged button's icon follows it and the choice is persisted with the other options.
-        if (_session.Tool is { } tool && GeometryTools.IsGeometry(tool) && tool != _lastGeometry)
-        {
-            _lastGeometry = tool;
-            _session.Editor.GeometryTool = tool.ToString();
-            _session.MarkOptionsChanged();
-            _geometryButton.Content = EditorIcons.For(tool);
-        }
-        if (_geometryMenu is not null) _geometryMenu.Refresh();
         var active = ActiveToolButton();
         foreach (var (_, button) in _toolButtons)
             button.Background = ReferenceEquals(button, active) ? ActiveToolBrush : Brushes.Transparent;
@@ -889,12 +750,35 @@ internal sealed class OverlayWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
 
+    private static Canvas ShapeIcon(Geometry geo)
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = geo,
+            Stroke = Brushes.White,
+            StrokeThickness = 1.6,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+        return new Canvas { Width = 18, Height = 18, Children = { path } };
+    }
+
     private static Geometry Geo(Action<StreamGeometryContext> build)
     {
         var geo = new StreamGeometry();
         using (var ctx = geo.Open()) build(ctx);
         return geo;
     }
+
+    private static Geometry ArrowGeometry() => Geo(g =>
+    {
+        g.BeginFigure(new Point(2, 14), false, false);
+        g.LineTo(new Point(13, 3), true, false);
+        g.LineTo(new Point(13, 8), true, false);
+        g.LineTo(new Point(16, 2), true, false);
+        g.LineTo(new Point(10, 3), true, false);
+    });
 
     private static Canvas SelectIcon()
     {
@@ -958,7 +842,6 @@ internal sealed class OverlayWindow : Window
             {
                 _toolbarHost.Visibility = Visibility.Collapsed;
                 _toolbarShown = false;
-                CloseGeometryMenu(); // the toolbar went away; the flyout must not linger
             }
             return;
         }
@@ -998,7 +881,6 @@ internal sealed class OverlayWindow : Window
         y = Math.Clamp(y, 4, Math.Max(4, ActualHeight - size.Height - 4));
         _toolbarOffset.X = x;
         _toolbarOffset.Y = y;
-        if (_geometryMenu is not null) PositionGeometryMenu(); // the strip moved; keep the flyout anchored
         // The auto-shown help card must keep clear of the toolbar's new rect (a selection near the
         // bottom-left would otherwise park the strip on top of the card).
         if (_helpPanel is not null) PositionHelpPanel();

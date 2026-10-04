@@ -1,4 +1,4 @@
-﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- App -->
@@ -61,6 +61,7 @@
     <sys:String x:Key="Action.CopyColor">复制颜色</sys:String>
     <sys:String x:Key="Action.Stop">停止</sys:String>
     <sys:String x:Key="Action.Ocr">文字识别</sys:String>
+    <sys:String x:Key="Action.Translate">翻译</sys:String>
 
     <!-- Toast -->
     <sys:String x:Key="Toast.Copied">已复制到剪贴板</sys:String>
@@ -89,7 +90,6 @@
     <sys:String x:Key="Tool.Ellipse">椭圆 (E)</sys:String>
     <sys:String x:Key="Tool.Line">直线 (L)</sys:String>
     <sys:String x:Key="Tool.Arrow">箭头 (A)</sys:String>
-    <sys:String x:Key="Tool.Geometry">几何 (R/E/L/A，长按选形状)</sys:String>
     <sys:String x:Key="Tool.Pen">画笔 (P)</sys:String>
     <sys:String x:Key="Tool.Text">文字 (T)</sys:String>
     <sys:String x:Key="Tool.Step">序号 (N)</sys:String>
@@ -105,8 +105,6 @@
     <sys:String x:Key="Prop.Color">颜色</sys:String>
     <sys:String x:Key="Prop.Thickness">粗细</sys:String>
     <sys:String x:Key="Prop.Fill">填充</sys:String>
-    <sys:String x:Key="Prop.Stroke">描边</sys:String>
-    <sys:String x:Key="Prop.Solid">实线</sys:String>
     <sys:String x:Key="Prop.FontSize">字号</sys:String>
     <sys:String x:Key="Prop.Opacity">不透明度</sys:String>
     <sys:String x:Key="Prop.Strength">强度</sys:String>
@@ -190,6 +188,7 @@
     <sys:String x:Key="Settings.After.Pin">贴到屏幕</sys:String>
     <sys:String x:Key="Settings.After.Thumbnail">浮动缩略图</sys:String>
     <sys:String x:Key="Settings.After.Ocr">文字识别</sys:String>
+    <sys:String x:Key="Settings.After.Translate">翻译</sys:String>
     <sys:String x:Key="Settings.DelaySeconds">延时（秒）</sys:String>
     <sys:String x:Key="Settings.AutoElementDetection">自动识别元素并吸附</sys:String>
     <sys:String x:Key="Settings.ShowMagnifier">显示放大镜</sys:String>
@@ -252,6 +251,28 @@
     <sys:String x:Key="Settings.Ocr.AutoCopy">识别后自动复制文字</sys:String>
     <sys:String x:Key="Settings.Ocr.AutoCopy.Sub">识别完成后立即把文字复制到剪贴板。</sys:String>
 
+    <!-- 翻译设置 -->
+    <sys:String x:Key="Settings.Group.Translate">翻译（Hy-MT2，完全离线）</sys:String>
+    <sys:String x:Key="Settings.Translate.Language">翻译成</sys:String>
+    <sys:String x:Key="Settings.Translate.Language.Sub">目标语言。翻译在本地离线完成，不联网、不上传。</sys:String>
+    <sys:String x:Key="Settings.Translate.AutoDetect">自动识别原文语言</sys:String>
+    <sys:String x:Key="Settings.Translate.AutoDetect.Sub">识别到的文字如果已经是目标语言，就改译成中英的另一方——中文截图自动出英文，无需手动切换。</sys:String>
+    <sys:String x:Key="Settings.Translate.Model">翻译模型</sys:String>
+    <sys:String x:Key="Settings.Translate.Installed">已安装（{0} MB），可离线使用，支持全部 36 种语言。</sys:String>
+    <sys:String x:Key="Settings.Translate.NotInstalled">未下载；翻译前需下载模型（约 1.1 GB，只需一次，支持全部 36 种语言）。</sys:String>
+    <sys:String x:Key="Settings.Translate.Partial">上次下载未完成（已下载 {0:0}%），再次点击下载会从断点续传。</sys:String>
+    <sys:String x:Key="Settings.Translate.Download">下载模型</sys:String>
+    <sys:String x:Key="Settings.Translate.Downloading">下载中 {0:0}%</sys:String>
+    <sys:String x:Key="Settings.Translate.DownloadFailed">下载失败：{0}</sys:String>
+    <sys:String x:Key="Settings.Translate.Downloaded">模型已安装，可离线使用。</sys:String>
+    <sys:String x:Key="Settings.Translate.Remove">删除模型</sys:String>
+    <sys:String x:Key="Settings.Translate.RemoveConfirm">确定删除翻译模型吗？删除后需要重新下载（约 1.1 GB）才能继续翻译。</sys:String>
+    <sys:String x:Key="Settings.Translate.Engine">翻译引擎</sys:String>
+    <sys:String x:Key="Settings.Translate.EngineMissing">翻译引擎缺失：程序目录下找不到 llama 文件夹。请运行 tools\build-llama-runtime.ps1 重新生成引擎后再打包。</sys:String>
+    <sys:String x:Key="Settings.Translate.EngineVersion">{0}</sys:String>
+    <sys:String x:Key="Settings.Translate.CopyAfter">翻译后自动复制译文</sys:String>
+    <sys:String x:Key="Settings.Translate.CopyAfter.Sub">翻译完成后立即把译文复制到剪贴板。</sys:String>
+
     <!-- History -->
     <sys:String x:Key="History.Title">历史记录</sys:String>
     <sys:String x:Key="History.Empty">还没有截图</sys:String>
@@ -285,7 +306,7 @@
     <sys:String x:Key="Overlay.HelpRefresh">重新截取当前屏幕</sys:String>
     <sys:String x:Key="Overlay.HelpCursorToggle">显示 / 隐藏 鼠标指针</sys:String>
     <sys:String x:Key="Overlay.HelpCopyColor">复制光标处颜色</sys:String>
-    <sys:String x:Key="Overlay.HelpTools">标注工具（选区内）：V 选择 · R 矩形 · E 椭圆 · L 直线 · A 箭头 · P 画笔 · H 荧光笔 · T 文字 · N 序号 · M 马赛克 · X 橡皮擦（长按「几何」可切换形状与样式）</sys:String>
+    <sys:String x:Key="Overlay.HelpTools">标注工具（选区内）：V 选择 · R 矩形 · E 椭圆 · L 直线 · A 箭头 · P 画笔 · H 荧光笔 · T 文字 · N 序号 · M 马赛克 · X 橡皮擦</sys:String>
     <sys:String x:Key="Overlay.HelpClose">F1 显示 / 隐藏 · 点击任意处 关闭</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionElements">检测界面元素</sys:String>
     <sys:String x:Key="Overlay.ElementDetectionWindows">检测窗口</sys:String>
@@ -328,6 +349,27 @@
     <sys:String x:Key="Ocr.ModelFast">快速模型</sys:String>
     <sys:String x:Key="Ocr.ModelAccurate">精确模型</sys:String>
     <sys:String x:Key="Ocr.FallbackFast">精确模型未安装，已使用快速模型</sys:String>
+
+    <!-- 翻译（Hy-MT2） -->
+    <sys:String x:Key="Translate.Title">翻译</sys:String>
+    <sys:String x:Key="Translate.Source">原文（识别结果）</sys:String>
+    <sys:String x:Key="Translate.Result">译文</sys:String>
+    <sys:String x:Key="Translate.CopyResult">复制译文</sys:String>
+    <sys:String x:Key="Translate.Swap">⇄ 反向翻译</sys:String>
+    <sys:String x:Key="Translate.Swap.Tip">把同一段文字按相反方向再翻译一次</sys:String>
+    <sys:String x:Key="Translate.Status">译为{0} · {1:0.00} 秒 · 离线</sys:String>
+    <sys:String x:Key="Translate.Empty">（没有可翻译的文字）</sys:String>
+    <sys:String x:Key="Translate.Running">正在识别并翻译…（首次使用需加载模型，可能要几十秒）</sys:String>
+    <sys:String x:Key="Translate.Done">翻译完成 · {0:0.00} 秒</sys:String>
+    <sys:String x:Key="Translate.Failed">翻译失败：{0}</sys:String>
+    <sys:String x:Key="Translate.Unavailable">翻译功能不可用，请确认已下载翻译模型。</sys:String>
+    <sys:String x:Key="Translate.Cancelled">已取消翻译</sys:String>
+    <sys:String x:Key="Translate.EngineMissing">翻译引擎缺失，请重新安装应用（引擎位于程序目录的 llama 文件夹）。</sys:String>
+    <sys:String x:Key="Translate.NeedModelTitle">需要下载翻译模型</sys:String>
+    <sys:String x:Key="Translate.NeedModelBody">离线翻译需要先下载 Hy-MT2 模型（约 1.1 GB，只需一次，装好后支持 36 种语言、永久离线）。现在下载吗？</sys:String>
+    <sys:String x:Key="Translate.Downloading">正在下载翻译模型 · {0:0}%（可断点续传）</sys:String>
+    <sys:String x:Key="Translate.DownloadDone">翻译模型已安装，可离线使用。</sys:String>
+    <sys:String x:Key="Translate.DownloadFailed">翻译模型下载失败：{0}</sys:String>
 
     <!-- First run -->
     <sys:String x:Key="FirstRun.Title">Modern ScreenShot 已在后台运行</sys:String>

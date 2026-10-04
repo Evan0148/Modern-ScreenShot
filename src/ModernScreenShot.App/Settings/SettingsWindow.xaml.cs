@@ -11,6 +11,7 @@ using ModernScreenShot.App.Services;
 using ModernScreenShot.App.Shell;
 using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Settings;
+using ModernScreenShot.Core.Translation;
 using L = ModernScreenShot.App.Localization.LocalizationService;
 
 namespace ModernScreenShot.App.Settings;
@@ -44,7 +45,7 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow(SettingsStore settings, LocalizationService localization,
         HotkeyService? hotkeys, Action<string>? notifyConflict, Action? onRestartAsAdmin,
-        Action? onPreviewOobe = null)
+        Action? onPreviewOobe = null, TranslationService? translation = null)
     {
         InitializeComponent();
         AppTitleBar.Attach(this); // custom title bar (Controls/AppTitleBar) replaces the OS caption
@@ -54,6 +55,7 @@ public partial class SettingsWindow : Window
         _notifyConflict = notifyConflict;
         _onRestartAsAdmin = onRestartAsAdmin;
         _onPreviewOobe = onPreviewOobe;
+        _translation = translation;
         _editedBindings = settings.Current.Hotkeys.Bindings.ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
 
         LoadGeneralTab();
@@ -62,6 +64,7 @@ public partial class SettingsWindow : Window
         LoadOutputTab();
         LoadEffectsTab();
         LoadOcrTab();
+        LoadTranslateTab();
         RefreshAboutTexts();
         _loading = false;
 
@@ -402,9 +405,170 @@ public partial class SettingsWindow : Window
         }
     }
 
+    // ---- Translation (Hy-MT2 via llama.cpp) ----
+
+    private readonly TranslationService? _translation;
+    private bool _translateDownloading;
+    private bool _translatePopulating;
+
+    /// <summary>The target language currently selected in the combo box.</summary>
+    private TranslationLanguage? SelectedLanguage =>
+        (TranslateLanguageBox.SelectedItem as ComboBoxItem)?.Tag as TranslationLanguage;
+
+    private void LoadTranslateTab()
+    {
+        TranslateAutoDetectBox.IsChecked = _settings.Current.Translation.AutoDetectSource;
+        TranslateAutoCopyBox.IsChecked = _settings.Current.Translation.CopyAfterTranslate;
+        PopulateTranslateLanguages();
+        RefreshTranslateStatus();
+    }
+
+    /// <summary>
+    /// Fills the language list. Unlike the previous engine there is nothing to fetch: the model is
+    /// multilingual, so every language is available as soon as the model is present.
+    /// </summary>
+    private void PopulateTranslateLanguages()
+    {
+        _translatePopulating = true;
+        try
+        {
+            bool chinese = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+                .Equals("zh", StringComparison.OrdinalIgnoreCase);
+            TranslateLanguageBox.Items.Clear();
+            foreach (var language in TranslationLanguages.All)
+            {
+                TranslateLanguageBox.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{language.DisplayName(chinese)}  ({language.Code})",
+                    Tag = language,
+                });
+            }
+
+            int index = TranslationLanguages.All
+                .Select((l, i) => (l, i))
+                .FirstOrDefault(x => string.Equals(x.l.Code, _settings.Current.Translation.ToCode, StringComparison.OrdinalIgnoreCase))
+                .i;
+            TranslateLanguageBox.SelectedIndex = index;
+        }
+        finally
+        {
+            _translatePopulating = false;
+        }
+    }
+
+    /// <summary>Model row + engine row: both carry localized text, so a live language switch re-runs
+    /// this (see the LanguageChanged handler).</summary>
+    private void RefreshTranslateStatus()
+    {
+        bool runtime = TranslationEngine.IsRuntimeInstalled;
+        TranslateEngineStatus.Text = runtime
+            ? L.Get("Settings.Translate.EngineVersion", TranslationEngine.ReadRuntimeVersion())
+            : L.Get("Settings.Translate.EngineMissing");
+        TranslateEngineStatus.SetResourceReference(TextBlock.ForegroundProperty,
+            runtime ? "TextFillColorSecondaryBrush" : "SystemFillColorCriticalBrush");
+
+        bool model = TranslationModelDownloader.IsModelInstalled();
+        long have = TranslationModelDownloader.InstalledBytes();
+        TranslateModelStatus.Text = model
+            ? L.Get("Settings.Translate.Installed", TranslationModelDownloader.ModelBytes / (1024 * 1024))
+            : have > 0
+                ? L.Get("Settings.Translate.Partial", have * 100.0 / TranslationModelDownloader.ModelBytes)
+                : L.Get("Settings.Translate.NotInstalled");
+        TranslateModelStatus.SetResourceReference(TextBlock.ForegroundProperty,
+            model ? "TextFillColorSecondaryBrush" : "SystemFillColorCautionBrush");
+
+        TranslateDownloadButton.Visibility = model ? Visibility.Collapsed : Visibility.Visible;
+        TranslateDownloadButton.IsEnabled = runtime && !model && !_translateDownloading;
+        TranslateRemoveButton.Visibility = model || have > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TranslateRemoveButton.IsEnabled = (model || have > 0) && !_translateDownloading;
+        TranslateLanguageBox.IsEnabled = !_translateDownloading;
+    }
+
+    private void OnTranslateLanguageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || _translatePopulating) return;
+        RefreshTranslateStatus();
+    }
+
+    private async void OnDownloadTranslateModel(object sender, RoutedEventArgs e)
+    {
+        if (_translateDownloading) return;
+        _translateDownloading = true;
+        TranslateDownloadButton.IsEnabled = false;
+        TranslateRemoveButton.IsEnabled = false;
+        var progress = new Progress<double>(fraction =>
+            TranslateDownloadButton.Content = L.Get("Settings.Translate.Downloading", fraction * 100));
+        bool completed = false;
+        try
+        {
+            await TranslationModelDownloader.DownloadAsync(progress);
+            completed = true;
+            Log.Info("Translation model downloaded.");
+            // The engine had no model to load before; drop it so the new file is picked up.
+            if (_translation is not null) await _translation.RestartAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Downloading the translation model failed", ex);
+            TranslateModelStatus.Text = L.Get("Settings.Translate.DownloadFailed", ex.Message);
+            TranslateModelStatus.SetResourceReference(TextBlock.ForegroundProperty, "SystemFillColorCriticalBrush");
+        }
+        finally
+        {
+            _translateDownloading = false;
+            TranslateDownloadButton.Content = L.Get("Settings.Translate.Download");
+            RefreshTranslateStatus();
+            if (completed) TranslateModelStatus.Text = L.Get("Settings.Translate.Downloaded");
+        }
+    }
+
+    private void OnRemoveTranslateModel(object sender, RoutedEventArgs e)
+    {
+        var answer = MessageBox.Show(this,
+            L.Get("Settings.Translate.RemoveConfirm"),
+            L.Get("Settings.Translate.Remove"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (answer != MessageBoxResult.Yes) return;
+
+        if (TranslationModelDownloader.Uninstall())
+        {
+            Log.Info("Translation model removed.");
+            if (_translation is not null) _ = _translation.RestartAsync();
+        }
+        RefreshTranslateStatus();
+    }
+
+    /// <summary>Diagnostic hook for --render-settings: scrolls the visible page to the bottom so the
+    /// snapshot can show sections that sit below the fold.</summary>
+    public void DiagnosticScrollToEnd()
+    {
+        // SelectPage only toggles visibility, so the page must be laid out before a ScrollViewer
+        // reports any scrollable height.
+        UpdateLayout();
+        var viewer = FindDeepestScrollViewer(this);
+        viewer?.ScrollToEnd();
+        UpdateLayout();
+    }
+
+    /// <summary>The page viewer, not the (short, non-scrolling) navigation rail: of all the
+    /// scrollable viewers in the window, the one with the most overflow is the content page.</summary>
+    private static ScrollViewer? FindDeepestScrollViewer(DependencyObject root)
+    {
+        ScrollViewer? best = null;
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer viewer && viewer.ScrollableHeight > (best?.ScrollableHeight ?? 0)) best = viewer;
+            var nested = FindDeepestScrollViewer(child);
+            if (nested is not null && nested.ScrollableHeight > (best?.ScrollableHeight ?? 0)) best = nested;
+        }
+        return best;
+    }
+
     private void RefreshAboutTexts()
     {
-        VersionText.Text = L.Get("Settings.Version", Services.AppVersion.Display);
+        var version = typeof(App).Assembly.GetName().Version;
+        VersionText.Text = L.Get("Settings.Version", version is null ? "?" : version.ToString(3));
         SettingsPathText.Text = L.Get("Settings.SettingsPath", _settings.FilePath);
     }
 
@@ -596,6 +760,9 @@ public partial class SettingsWindow : Window
         CapturePriorityHint.Text = L.Get(ElevationService.IsElevated ? "Settings.CapturePriorityHint" : "Settings.CapturePriorityHintNormal");
         SaveDirHint.Text = string.Format(L.Get("Settings.SaveDirDefault"), AppPaths.DefaultSaveDir);
         if (!_ocrDownloading) RefreshOcrModelStatus();
+        if (!_translateDownloading) RefreshTranslateStatus();
+        // The language names in the combo box follow the UI language too.
+        if (!_translatePopulating) PopulateTranslateLanguages();
         // The language may have been changed elsewhere (e.g. tray menu) while this window is open;
         // without this sync, OK would write the stale combo value back and revert that choice.
         _syncingLanguage = true;
@@ -676,6 +843,9 @@ public partial class SettingsWindow : Window
         s.Output.ApplyEffectsOnExport = ApplyEffectsBox.IsChecked == true;
         s.Ocr.Accuracy = OcrAccuracyBox.SelectedIndex == 1 ? OcrAccuracy.Accurate : OcrAccuracy.Fast;
         s.Ocr.CopyAfterRecognize = OcrAutoCopyBox.IsChecked == true;
+        s.Translation.AutoDetectSource = TranslateAutoDetectBox.IsChecked == true;
+        s.Translation.CopyAfterTranslate = TranslateAutoCopyBox.IsChecked == true;
+        if (SelectedLanguage is { } language) s.Translation.ToCode = language.Code;
     }
 
     /// <summary>Clamps a NumberBox value (null when the box is empty) into range, falling back to the

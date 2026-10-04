@@ -13,12 +13,14 @@ using ModernScreenShot.App.Overlay;
 using ModernScreenShot.App.Services;
 using ModernScreenShot.App.Settings;
 using ModernScreenShot.App.Shell;
+using ModernScreenShot.App.Translation;
 using ModernScreenShot.Core.Annotation;
 using ModernScreenShot.Core.History;
 using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
+using ModernScreenShot.Core.Translation;
 using Backdrop = Wpf.Ui.Controls.WindowBackdropType;
 using L = ModernScreenShot.App.Localization.LocalizationService;
 
@@ -49,6 +51,15 @@ public partial class App
         services.AddSingleton<HistoryRecorder>();
         // Offline text recognition; the ONNX models load lazily on the first OCR, never at startup.
         services.AddSingleton<OcrService>();
+        // Offline translation (Hy-MT2 via llama.cpp): a native child process, started on first use.
+        // Its output carries the server banner and any warnings, so it is routed into the app log —
+        // without that, a failing engine would be silent.
+        services.AddSingleton(_ =>
+        {
+            var translation = new TranslationService();
+            translation.Diagnostic += line => Log.Info($"translate[engine]: {line}");
+            return translation;
+        });
         // Shell services: constructors are side-effect free; Start() is called explicitly below.
         services.AddSingleton<SingleInstance>();
         services.AddSingleton<HotkeyService>();
@@ -159,6 +170,7 @@ public partial class App
             case "history": OpenHistory(); break;
             case "oobe": ShowOobe(); break;
             case "ocr": ShowDiagnosticOcr(); break;
+            case "translate": ShowDiagnosticTranslate(); break;
             default:
                 Log.Warn($"--render-{target}: unknown window target.");
                 Shutdown(2);
@@ -183,7 +195,7 @@ public partial class App
             {
                 Window? win = null;
                 foreach (Window w in Application.Current.Windows)
-                    if (w is SettingsWindow or EditorWindow or HistoryWindow or OobeWindow or OcrResultWindow && w.Content is UIElement) { win = w; break; }
+                    if (w is SettingsWindow or EditorWindow or HistoryWindow or OobeWindow or OcrResultWindow or TranslationResultWindow && w.Content is UIElement) { win = w; break; }
                 if (win is null)
                     throw new InvalidOperationException($"no diagnostic window found for '{target}'.");
                 // MSS_RENDER_TAB selects a settings page by index (0-based) before the snapshot.
@@ -191,6 +203,13 @@ public partial class App
                     && int.TryParse(Environment.GetEnvironmentVariable("MSS_RENDER_TAB"), out var tab))
                 {
                     settingsWindow.SelectPage(tab);
+                }
+                // MSS_RENDER_SCROLL=end scrolls the settings page to the bottom, so sections below the
+                // fold (translation, for one) can be snapshotted.
+                if (win is SettingsWindow scrollWindow
+                    && string.Equals(Environment.GetEnvironmentVariable("MSS_RENDER_SCROLL"), "end", StringComparison.OrdinalIgnoreCase))
+                {
+                    scrollWindow.DiagnosticScrollToEnd();
                 }
                 // MSS_RENDER_W/H force a window size; MSS_RENDER_EDITOR_EFFECTS=1 opens the effects
                 // panel; MSS_RENDER_EDITOR_SELECT=1 selects the last annotation item;
@@ -343,6 +362,7 @@ public partial class App
             case "history": OpenHistory(); break;
             case "oobe": ShowOobe(); break;
             case "ocr": ShowDiagnosticOcr(); break;
+            case "translate": ShowDiagnosticTranslate(); break;
             case "hotkey":
             {
                 var dialog = new HotkeyEditDialog("Region", HotkeySettings.CreateDefaults(), null,
@@ -356,7 +376,7 @@ public partial class App
         }
         foreach (Window w in Application.Current.Windows)
         {
-            if (w is SettingsWindow or EditorWindow or HistoryWindow or OobeWindow or OcrResultWindow && w.Content is UIElement)
+            if (w is SettingsWindow or EditorWindow or HistoryWindow or OobeWindow or OcrResultWindow or TranslationResultWindow && w.Content is UIElement)
                 return w;
         }
         return null;
@@ -756,12 +776,27 @@ public partial class App
             new OcrTextResult { Text = "smoke", Lines = [new OcrLine("smoke", 1.0)], ElapsedMs = 1 },
             services.GetRequiredService<ClipboardService>(), autoCopy: false);
         ocrWindow.Close();
+        // Translation: the result window must construct cleanly. The llama.cpp runtime is a generated
+        // artefact (tools/build-llama-runtime.ps1), so its absence is reported rather than fatal —
+        // --translate-test is the check that actually exercises the engine.
+        var translationWindow = new TranslationResultWindow(
+            new TranslationOutcome("smoke", "冒烟", "zh", 1),
+            services.GetRequiredService<ClipboardService>(), autoCopy: false, "Chinese");
+        translationWindow.Close();
+        if (!TranslationEngine.IsRuntimeInstalled)
+            Log.Warn($"smoke: the llama.cpp runtime is not installed under {TranslationEngine.RuntimeDir}; "
+                     + "run tools/build-llama-runtime.ps1 to enable translation.");
+        else if (!TranslationModelDownloader.IsModelInstalled())
+            Log.Info("smoke: translation runtime present, model not downloaded yet.");
+        else
+            Log.Info("smoke: translation runtime and model both present.");
         // Pin window: covers the Snipaste-style shadow + context-menu construction (never shown).
         var pin = new PinWindow(new PixelBuffer(64, 48), services.GetRequiredService<ImageExporter>(),
             services.GetRequiredService<ClipboardService>(), null, null,
             store: services.GetRequiredService<SettingsStore>());
         pin.Close();
-        Log.Info("smoke: shell services, SettingsWindow, CountdownWindow, OobeWindow, OcrResultWindow and PinWindow instantiated (nothing shown).");
+        Log.Info("smoke: shell services, SettingsWindow, CountdownWindow, OobeWindow, OcrResultWindow, "
+                 + "TranslationResultWindow and PinWindow instantiated (nothing shown).");
     }
 
     // ---- shell ----
@@ -1035,7 +1070,8 @@ public partial class App
             Services.GetRequiredService<LocalizationService>(), _hotkeys,
             message => _tray?.ShowNotification(L.Get("Settings.Title"), message),
             RequestRestartAsAdmin,
-            PreviewOobe);
+            PreviewOobe,
+            Services.GetRequiredService<TranslationService>());
         // A closing window already has IsLoaded == false; without the identity check its Closed
         // handler would null the field of the window that was just opened instead.
         _settingsWindow.Closed += (sender, _) =>
@@ -1193,6 +1229,9 @@ public partial class App
             case AfterCaptureAction.OcrText:
                 RunOcrCapture(result);
                 break;
+            case AfterCaptureAction.TranslateText:
+                RunTranslateCapture(result);
+                break;
             case AfterCaptureAction.FloatingThumbnail:
                 ShowFloatingThumbnail(result, doc);
                 break;
@@ -1233,7 +1272,8 @@ public partial class App
                 store: Services.GetRequiredService<SettingsStore>()),
             // size/position the editor on the monitor the capture came from (multi-monitor)
             Services.GetRequiredService<MonitorService>(),
-            Services.GetRequiredService<OcrService>());
+            Services.GetRequiredService<OcrService>(),
+            Services.GetRequiredService<TranslationService>());
         editor.Closed += OnEditorClosed;
         EditorWindows.Add(editor);
         editor.Opacity = 0; // fade-in preset: WindowFadeIn below brings it up right after Show

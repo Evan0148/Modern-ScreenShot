@@ -77,6 +77,8 @@ public sealed class SettingsStore
         s.Editor ??= new EditorSettings();
         s.Ocr ??= new OcrSettings();
         if (!Enum.IsDefined(s.Ocr.Accuracy)) s.Ocr.Accuracy = OcrAccuracy.Fast;
+        s.Translation ??= new TranslationSettings();
+        if (string.IsNullOrWhiteSpace(s.Translation.ToCode)) s.Translation.ToCode = "zh";
         s.Editor.Palette ??= [.. new EditorSettings().Palette];
         s.Effects ??= BuiltInPresets.Clean().Settings;
         s.Effects.Shadow ??= new();

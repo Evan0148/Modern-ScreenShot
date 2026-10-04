@@ -341,6 +341,7 @@ public sealed class CaptureService
         OverlayIntent.Save => AfterCaptureAction.SaveOnly,
         OverlayIntent.Pin => AfterCaptureAction.Pin,
         OverlayIntent.Ocr => AfterCaptureAction.OcrText,
+        OverlayIntent.Translate => AfterCaptureAction.TranslateText,
         _ => null,
     };
 }

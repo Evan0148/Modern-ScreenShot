@@ -357,6 +357,60 @@
                             </ui:CardControl.Header>
                             <ui:ToggleSwitch x:Name="OcrAutoCopyBox"/>
                         </ui:CardControl>
+
+                        <TextBlock Style="{StaticResource GroupCaption}" Text="{DynamicResource Settings.Group.Translate}"/>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Translate.Language}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Translate.Language.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ComboBox x:Name="TranslateLanguageBox" Width="260" SelectionChanged="OnTranslateLanguageChanged"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Translate.Model}"/>
+                                    <TextBlock x:Name="TranslateModelStatus" Style="{StaticResource RowSubtitle}"
+                                               Text="{DynamicResource Settings.Translate.NotInstalled}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button x:Name="TranslateRemoveButton" Content="{DynamicResource Settings.Translate.Remove}"
+                                           Click="OnRemoveTranslateModel"/>
+                                <ui:Button x:Name="TranslateDownloadButton" Content="{DynamicResource Settings.Translate.Download}"
+                                           Icon="{ui:SymbolIcon ArrowDownload24}" Margin="8,0,0,0"
+                                           Click="OnDownloadTranslateModel"/>
+                            </StackPanel>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Translate.Engine}"/>
+                                    <TextBlock x:Name="TranslateEngineStatus" Style="{StaticResource RowSubtitle}"
+                                               Text="{DynamicResource Settings.Translate.EngineMissing}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Translate.AutoDetect}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Translate.AutoDetect.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="TranslateAutoDetectBox"/>
+                        </ui:CardControl>
+                        <ui:CardControl Style="{StaticResource Card}">
+                            <ui:CardControl.Header>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource RowTitle}" Text="{DynamicResource Settings.Translate.CopyAfter}"/>
+                                    <TextBlock Style="{StaticResource RowSubtitle}" Text="{DynamicResource Settings.Translate.CopyAfter.Sub}"/>
+                                </StackPanel>
+                            </ui:CardControl.Header>
+                            <ui:ToggleSwitch x:Name="TranslateAutoCopyBox"/>
+                        </ui:CardControl>
                     </StackPanel>
 
                     <!-- ===== Output ===== -->
@@ -462,6 +516,7 @@
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Ocr}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Translate}"/>
                             </ComboBox>
                         </ui:CardControl>
                         <ui:CardControl Style="{StaticResource Card}">
@@ -479,6 +534,7 @@
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Pin}"/>
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Thumbnail}"/>
                                 <ComboBoxItem Content="{DynamicResource Settings.After.Ocr}"/>
+                                <ComboBoxItem Content="{DynamicResource Settings.After.Translate}"/>
                             </ComboBox>
                         </ui:CardControl>
                     </StackPanel>

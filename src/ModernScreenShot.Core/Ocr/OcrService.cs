@@ -16,8 +16,10 @@ namespace ModernScreenShot.Core.Ocr;
 /// </summary>
 public enum OcrAccuracy { Fast, Accurate }
 
-/// <summary>One recognized text line plus its average per-character confidence (0..1).</summary>
-public sealed record OcrLine(string Text, double Score);
+/// <summary>One recognized text line plus its average per-character confidence (0..1) and the box
+/// the detector reported it in. The box matters when the detector splits a line into word-sized
+/// fragments — see <see cref="OcrTextLayout"/>.</summary>
+public sealed record OcrLine(string Text, double Score, PixelRect Bounds = default);
 
 /// <summary>Result of one recognition pass over one image.</summary>
 public sealed class OcrTextResult
@@ -192,16 +194,33 @@ public sealed class OcrService : IDisposable
 
     private static List<OcrLine> ExtractLines(OcrResult result)
     {
-        var lines = new List<OcrLine>();
+        var fragments = new List<OcrLine>();
         foreach (var block in result.TextBlocks)
         {
             string text = (block.Text ?? string.Empty).TrimEnd();
             if (text.Length == 0) continue;
             double score = 0;
             if (block.CharScores is { Length: > 0 } scores) score = scores.Average();
-            lines.Add(new OcrLine(text, score));
+            fragments.Add(new OcrLine(text, score, Bounds(block.BoxPoints)));
         }
-        return lines;
+        // The detector reports boxes, not lines: put word-sized fragments back onto their row so
+        // downstream consumers (the result window, translation) see real lines.
+        return [.. OcrTextLayout.Assemble(fragments)];
+    }
+
+    /// <summary>Bounding box of a detector polygon; empty when the detector reported no points.</summary>
+    private static PixelRect Bounds(SKPointI[]? points)
+    {
+        if (points is not { Length: > 0 }) return default;
+        int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
+        foreach (var p in points)
+        {
+            if (p.X < left) left = p.X;
+            if (p.Y < top) top = p.Y;
+            if (p.X > right) right = p.X;
+            if (p.Y > bottom) bottom = p.Y;
+        }
+        return PixelRect.FromLTRB(left, top, right, bottom);
     }
 
     private void DisposeEngine()

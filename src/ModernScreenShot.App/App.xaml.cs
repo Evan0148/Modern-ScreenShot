@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using ModernScreenShot.App.Capture;
@@ -31,7 +31,7 @@ public partial class App : Application
         StartupArgs = e.Args;
         HookGlobalExceptionHandlers();
         bool smoke = e.Args.Any(a => string.Equals(a, "--smoke", StringComparison.OrdinalIgnoreCase));
-        Log.Info($"Starting {(smoke ? "smoke test" : "app")} v{AppVersion.Display} args=[{string.Join(' ', e.Args)}]");
+        Log.Info($"Starting {(smoke ? "smoke test" : "app")} v{typeof(App).Assembly.GetName().Version} args=[{string.Join(' ', e.Args)}]");
 
         try
         {
@@ -45,6 +45,21 @@ public partial class App : Application
                 RunSmoke();
                 return;
             }
+
+            // --translate-test[=text] / --translate-install[=from-to]: end-to-end translation and
+            // language-pack self checks. Run before the shell exactly like --smoke, because they need
+            // no tray and must be able to report a clean exit code.
+            string? translateTest = e.Args.FirstOrDefault(
+                a => a.StartsWith("--translate-test", StringComparison.OrdinalIgnoreCase));
+            string? translateInstall = e.Args.FirstOrDefault(
+                a => a.StartsWith("--translate-install", StringComparison.OrdinalIgnoreCase));
+            if (translateTest is not null || translateInstall is not null)
+            {
+                CaptureTranslateTestArgument(e.Args);
+                RunTranslateDiagnosticAndShutdown(install: translateInstall is not null);
+                return;
+            }
+
             OnStartupCompleted(e.Args);
         }
         catch (Exception ex)

@@ -1,7 +1,5 @@
 > **状态更新（2026-10-01）：Windows 11 原生标题栏对齐重构（`.omo/plans/titlebar-win11-native.md`，T1–T13）已实现：标题栏 32 DIP、模板化 CaptionButton、Snap Layouts（HTMAXBUTTON）、最大化外扩修复、探针与 fixtures 更新。文档同步：KNOWN_ISSUES.md 新增本改造小节；README.md 未提及标题栏故未动。以下 2026-09-27 记录为历史交接，保留。**
 >
-> **状态更新（2026-10-03）：新增 GitHub Actions CI（`.github/workflows/ci.yml`，windows-latest）。门禁 = Release build → harness `core` → harness `ocr`（随仓库 bundle 模型，不下载 server 档）→ `tools/check-i18n.ps1` → `--smoke`（Start-Process + 180s 显式 kill 防挂死）→ publish 框架依赖 win-x64 上传 artifact；**每次 push（非 tag）额外跑 `dev-draft` job：版本号规则见 Agent.md（`<git describe 的 v* 标签或 0.0.0>-dev.<run_number>+g<短SHA>`，同 commit 恒定；checkout 需 fetch-depth:0 取标签），self-contained 发布传 `-p:InformationalVersion=<版本号> -p:IncludeSourceRevisionInInformationalVersion=false`（否则 SDK 会在后面再追全量 SHA），zip/Draft 标题带版本号（tag 仍=`dev-<短SHA>`，发布 Draft 才会建 tag；同 commit 重跑先删旧 Draft 再建）；`Services/AppVersion.Display` 读 InformationalVersion 显示于 About 与启动日志（本地构建=SDK 自动 `1.0.0+<完整SHA>`，显示截短 8 位）**；推 `v*` 标签走 `release` job 正式发布（`gh release create --generate-notes`）。触发改为 `on: push`（全分支，去掉 pull_request 防重复）。app.manifest 为 asInvoker，CI 无 UAC 阻塞。全部命令已在本机 Release 模式逐条验证（build 0/0、harness ALL PASS、i18n 344=344、smoke exit 0、两种 publish 产物完整）。**
-
 > **状态更新（2026-09-27）：T4–T10 已全部完成并逐任务提交（d9cc2b6 → 797d0dd → f1167e0 → db03609 → ce53b13 → 2002f5a + T10 收尾提交）。README.md / KNOWN_ISSUES.md / publish\ 均已就绪，等待用户真机测试。以下为过程交接记录。**
 
 # HANDOFF — Modern-ScreenShot（交接文档）
@@ -90,7 +88,6 @@
 
 ### T5 编辑器
 - `Editor/EditorWindow`（WPF-UI Fluent）：顶部工具栏、右侧属性面板、底部动作。快捷键见计划（V/R/E/L/A/P/T/N/H/M/B/S/G/C、Ctrl+Z/Y、Del、Ctrl+C/S/P）。
-- `Editor/GeometryMenu`（共享）：「几何」合并工具的二级/三级飞出菜单（形状列 + 样式变体列），overlay 与编辑器共用；矩形/椭圆/直线/箭头映射到同一按钮，长按 ~400ms 弹出，`EditorSettings.GeometryTool` 持久化上次形状。
 - `Editor/Canvas/AnnotationCanvas`：缩放（Ctrl+滚轮、适应、100%）/平移（空格+拖/中键）、把 `AnnotationItem` 渲染成 WPF 形状、命中测试、8 手柄选中移动缩放、双击文字编辑、置顶置底。
 - `RenderFlattened()`：原图 + 标注 + Crop → `RenderTargetBitmap`(96DPI 1:1) → `PixelBuffer`，再走 Core `EffectPipeline`。
 - Mosaic/Blur/Spotlight/Magnifier 预览直接调用 Core `Mosaic` / 遮罩合成；每步变更 `UndoStack.Push`。

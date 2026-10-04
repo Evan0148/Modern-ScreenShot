@@ -19,7 +19,7 @@ namespace ModernScreenShot.App.Overlay;
 /// gesture (Enter / double-click / click-snap / window pick) that carried no explicit toolbar
 /// choice — dispatch then applies the user's configured "action after capture" setting.
 /// The toolbar buttons carry their own explicit intents.</summary>
-public enum OverlayIntent { Default, Edit, Copy, Save, Pin, Ocr }
+public enum OverlayIntent { Default, Edit, Copy, Save, Pin, Ocr, Translate }
 
 public sealed class OverlayOutcome
 {

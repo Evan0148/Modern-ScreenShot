@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -10,6 +10,7 @@ using ModernScreenShot.Core.Imaging;
 using ModernScreenShot.Core.Ocr;
 using ModernScreenShot.Core.Output;
 using ModernScreenShot.Core.Settings;
+using ModernScreenShot.Core.Translation;
 
 namespace Harness;
 
@@ -460,5 +461,60 @@ internal static class Program
         {
             System.Runtime.InteropServices.Marshal.FreeHGlobal(unmanaged);
         }
+
+        OcrLayoutChecks();
+        TextReflowChecks();
+    }
+
+    /// <summary>PP-OCRv5 reports boxes, not lines: word-shaped fragments on one row must be joined
+    /// back into a single line (a regression here made translation translate word by word).</summary>
+    private static void OcrLayoutChecks()
+    {
+        static OcrLine L(string text, int x, int y, int w, int h) =>
+            new(text, 1.0, PixelRect.FromLTRB(x, y, x + w, y + h));
+
+        var rows = OcrTextLayout.Assemble(
+        [
+            L("Jason", 40, 40, 90, 40), L("and", 140, 40, 60, 40), L("Lucia", 210, 40, 90, 40),
+            L("have", 40, 100, 80, 40), L("always", 130, 100, 100, 40),
+        ]);
+        Check(rows.Count == 2, $"ocr layout: two visual rows rebuilt (got {rows.Count})");
+        Check(rows[0].Text == "Jason and Lucia", $"ocr layout: latin fragments space-joined ('{rows[0].Text}')");
+        Check(rows[1].Text == "have always", $"ocr layout: second row joined ('{rows[1].Text}')");
+
+        var cjk = OcrTextLayout.Assemble([L("你好", 40, 40, 60, 40), L("世界", 105, 40, 60, 40)]);
+        Check(cjk.Count == 1 && cjk[0].Text == "你好世界", $"ocr layout: CJK fragments joined without a space ('{cjk[0].Text}')");
+
+        // A detector that already reports whole lines (no geometry) must pass through untouched.
+        var plain = OcrTextLayout.Assemble([new OcrLine("whole line", 1.0), new OcrLine("next line", 1.0)]);
+        Check(plain.Count == 2 && plain[0].Text == "whole line", "ocr layout: geometry-less input passes through");
+    }
+
+    /// <summary>Hard-wrapped screen text must be reflowed into paragraphs before translation: the
+    /// line breaks are a layout artefact and would otherwise be translated as separate fragments.</summary>
+    private static void TextReflowChecks()
+    {
+        string wrapped = TextReflow.ToParagraphs(
+            "Jason and Lucia have always known the deck is stacked\n"
+            + "against them. But when an easy score goes wrong, they\n"
+            + "find themselves on the darkest side.");
+        Check(!wrapped.Contains('\n'), "reflow: wrapped lines merged into one paragraph");
+        Check(wrapped.Contains("stacked against them."), "reflow: sentence reconstructed across the wrap");
+
+        string paragraphs = TextReflow.ToParagraphs("Title here\n\nBody text follows.");
+        Check(paragraphs.Split('\n').Length == 2, "reflow: blank line still separates paragraphs");
+
+        string sentences = TextReflow.ToParagraphs("First sentence ends here.\nSecond sentence starts.");
+        Check(sentences.Split('\n').Length == 2, "reflow: sentence end starts a new paragraph");
+
+        Check(TextReflow.ToParagraphs("exam-\nple") == "example", "reflow: hyphenated line break re-joined");
+
+        string cjk = TextReflow.ToParagraphs("你好，世界\n这是一个测试。");
+        Check(cjk == "你好，世界这是一个测试。", $"reflow: CJK joined without spaces ('{cjk}')");
+
+        Check(TextReflow.ToParagraphs("• first item\n• second item").Split('\n').Length == 2,
+            "reflow: list markers start new paragraphs");
+
+        Check(TextReflow.ToParagraphs("") == "", "reflow: empty input is safe");
     }
 }

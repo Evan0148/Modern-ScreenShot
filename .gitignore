@@ -7,12 +7,20 @@ obj/
 publish/
 tools/Harness/out/
 
+# Generated llama.cpp runtime (tools/build-llama-runtime.ps1). Committed on purpose: the CI release
+# job publishes a self-contained zip straight from the checkout, and without these files that zip's
+# translation feature would be non-functional. Only the runtime is tracked — the 1.08 GB model is
+# always downloaded by the user on demand.
+
 # local verification artifacts
 tools/verify_out/
 tools/verify_*.ps1
 
 # local build/test artifacts
 Modern-ScreenShot.zip
+# Self-contained package + the folder the 使用说明/verification steps extract it into.
+Modern-ScreenShot-*-win-x64*.zip
+Modern-ScreenShot-v*/
 oobe_*.png
 user_*.png
 verify_*.png

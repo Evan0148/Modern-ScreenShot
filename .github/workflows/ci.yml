@@ -38,6 +38,20 @@ jobs:
       - name: Restore
         run: dotnet restore ModernScreenShot.sln
 
+      # The llama.cpp runtime is committed under Assets/llama, but the build only copies it when
+      # llama-server.exe is present (the csproj item group is conditional). Fail loudly here rather
+      # than ship a zip whose translation feature silently does nothing.
+      - name: Verify bundled translation runtime
+        shell: pwsh
+        run: |
+          $dir = "src/ModernScreenShot.App/Assets/llama"
+          if (-not (Test-Path "$dir/llama-server.exe")) {
+            Write-Host "::error::$dir/llama-server.exe is missing; run tools/build-llama-runtime.ps1 and commit Assets/llama"
+            exit 1
+          }
+          $mb = [math]::Round(((Get-ChildItem $dir -File | Measure-Object Length -Sum).Sum / 1MB), 1)
+          Write-Host "llama.cpp runtime present: $mb MB, $((Get-ChildItem $dir -File).Count) files"
+
       - name: Build (Release)
         run: dotnet build ModernScreenShot.sln -c $env:CONFIG --no-restore
 
