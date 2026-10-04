@@ -35,19 +35,42 @@ public partial class App
             _tray?.ShowNotification(L.Get("Ocr.Title"), L.Get("Ocr.Unavailable"));
             return;
         }
+        var ct = BeginOperation();
+        // Delay-gated: warm OCR takes 60-400ms, so the toast only appears if the operation
+        // outlives the ~300ms gate — sub-second runs leave zero UI trace.
+        OperationToastDelayed(L.Get("Ocr.Running"), ct);
         try
         {
             // Same pixels the other direct outputs get: with inline annotations flattened in.
             var image = ImageWithAnnotations(result);
-            var outcome = await ocr.RecognizeAsync(image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy);
+            var outcome = await ocr.RecognizeAsync(image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy, ct);
             Log.Info($"OCR finished for {result.Mode} capture: {outcome.Lines.Count} line(s), {outcome.ElapsedMs} ms"
                      + (outcome.FallbackToFast ? " (accurate models missing, used fast)." : "."));
+            if (string.IsNullOrWhiteSpace(outcome.Text))
+            {
+                OperationToastComplete(L.Get("Ocr.Empty"));
+                _tray?.ShowNotification(L.Get("Ocr.Title"), L.Get("Ocr.Empty"));
+                return;
+            }
+            // The result window is the done signal — close the toast (or its pending gate) first.
+            OperationToastClose();
             ShowOcrResult(outcome);
+        }
+        catch (OperationCanceledException)
+        {
+            // OCR shows no cancel button — only a superseding operation cancels this token, and
+            // it owns the toast now. Close silently (no Ocr.Cancelled key exists by design).
+            OperationToastClose();
         }
         catch (Exception ex)
         {
             Log.Error("OCR of the capture failed", ex);
+            OperationToastComplete(L.Get("Ocr.Failed"));
             _tray?.ShowNotification(L.Get("Ocr.Title"), L.Get("Ocr.Failed"));
+        }
+        finally
+        {
+            EndOperation();
         }
     }
 
