@@ -1222,11 +1222,6 @@ public partial class EditorWindow : Window
         }
     }
 
-    /// <summary>
-    /// Reads the text off the current canvas (OCR) and translates it with the local model. Same two-step shape as
-    /// the capture overlay's 翻译 button, and it reports progress in the editor's status line rather
-    /// than through the tray, because the editor owns the screen while it is open.
-    /// </summary>
     /// <summary>Translate-button click: while a translation is in flight the button is the cancel
     /// control, so the click cancels instead of starting a second run.</summary>
     private void OnTranslateClicked()
@@ -1239,6 +1234,11 @@ public partial class EditorWindow : Window
         RunTranslate();
     }
 
+    /// <summary>
+    /// Reads the text off the current canvas (OCR) and translates it with the local model. Same two-step shape as
+    /// the capture overlay's 翻译 button, and it reports progress in the editor's status line rather
+    /// than through the tray, because the editor owns the screen while it is open.
+    /// </summary>
     private async void RunTranslate()
     {
         if (_ocr is null || _translation is null)

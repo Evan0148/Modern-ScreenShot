@@ -1,4 +1,3 @@
-using System.Windows;
 using ModernScreenShot.App.Capture;
 using ModernScreenShot.App.Output;
 using L = ModernScreenShot.App.Localization.LocalizationService;
@@ -39,6 +38,23 @@ public partial class App
     /// <summary>Cancels the operation in flight (wired to the toast's cancel button).</summary>
     private void CancelOperation() => _operationCts?.Cancel();
 
+    /// <summary>
+    /// Cancels a pending toast delay gate. The gate task disposes its own token source when it
+    /// finishes, so the field can reference an already-disposed instance — that race is expected
+    /// and means the gate already fired (or was already superseded), which needs no cancel.
+    /// </summary>
+    private void CancelToastGate()
+    {
+        try
+        {
+            _toastGateCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The gate already fired and was disposed by its own task.
+        }
+    }
+
     /// <summary>Releases the operation token source once the operation has fully ended.</summary>
     private void EndOperation()
     {
@@ -54,7 +70,7 @@ public partial class App
     private ToastWindow OperationToast(string text, bool cancellable = false)
     {
         // An immediate show supersedes any pending delay gate.
-        _toastGateCts?.Cancel();
+        CancelToastGate();
         var area = ToastWindow.WorkAreaFor(new MonitorService().GetCursorMonitor());
         _operationToast = ToastWindow.ShowOrUpdate(text, area,
             cancellable ? L.Get("Toast.Cancel") : null,
@@ -71,7 +87,7 @@ public partial class App
     {
         var gate = new CancellationTokenSource();
         var linked = CancellationTokenSource.CreateLinkedTokenSource(gate.Token, ct);
-        _toastGateCts?.Cancel();
+        CancelToastGate();
         _toastGateCts = gate;
         _ = Task.Run(async () =>
         {
@@ -88,17 +104,21 @@ public partial class App
             {
                 linked.Dispose();
                 gate.Dispose();
+                // The field must not keep referencing the disposed gate — later cancels would
+                // otherwise trip over it. Only clear when it still points at this gate.
+                if (ReferenceEquals(_toastGateCts, gate)) _toastGateCts = null;
             }
         });
     }
 
     /// <summary>
     /// Terminal feedback (failure / cancelled): kills any pending delay gate, swaps in the final
-    /// message and lets the toast auto-close via fade after ~3s.
+    /// message (null keeps the text the toast is already showing) and lets the toast auto-close
+    /// via fade after ~3s.
     /// </summary>
-    private void OperationToastComplete(string finalText)
+    private void OperationToastComplete(string? finalText)
     {
-        _toastGateCts?.Cancel();
+        CancelToastGate();
         _operationToast?.Complete(finalText);
         _operationToast = null;
     }
@@ -109,7 +129,7 @@ public partial class App
     /// </summary>
     private void OperationToastClose()
     {
-        _toastGateCts?.Cancel();
+        CancelToastGate();
         _operationToast?.CloseInstant();
         _operationToast = null;
     }

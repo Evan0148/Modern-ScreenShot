@@ -110,13 +110,18 @@ internal static class TranslationFlow
         {
             Log.Info($"Translate: downloading {TranslationModelDownloader.ModelFileName} "
                      + $"({TranslationModelDownloader.ModelBytes / (1024 * 1024)} MB)");
+            // A partial file from an earlier attempt means this run resumes mid-download.
+            bool resuming = TranslationModelDownloader.InstalledBytes() > 0;
             double lastReported = -1;
             var progress = new Progress<double>(fraction =>
             {
                 // The download is long; report in 5% steps so the balloon is not re-posted constantly.
                 if (fraction - lastReported < 0.05 && fraction < 1.0) return;
+                bool first = lastReported < 0;
                 lastReported = fraction;
-                notify?.Invoke(L.Get("Translate.Title"), L.Get("Translate.Downloading", fraction * 100));
+                notify?.Invoke(L.Get("Translate.Title"), first && resuming
+                    ? L.Get("Translate.Toast.Resuming", fraction * 100)
+                    : L.Get("Translate.Downloading", fraction * 100));
             });
             await TranslationModelDownloader.DownloadAsync(progress, ct);
 

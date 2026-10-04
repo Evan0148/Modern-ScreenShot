@@ -34,55 +34,59 @@ public partial class App
         // Warm OCR takes 60-400ms; the 300ms gate keeps that hot path from flashing a toast.
         // No cancel button during OCR — a sub-second phase is not worth aborting.
         OperationToastDelayed(L.Get("Ocr.Running"), ct);
-
-        var ocr = Services.GetRequiredService<OcrService>();
-        if (!ocr.HasBundledModels)
-        {
-            Log.Error($"Translation needs OCR, but the models are missing under {ocr.BundleModelsDir}");
-            OperationToastComplete(L.Get("Ocr.Unavailable"));
-            Notify(L.Get("Translate.Title"), L.Get("Ocr.Unavailable"));
-            EndOperation();
-            return;
-        }
-
-        string text;
         try
         {
-            // Same pixels the other direct outputs get: inline annotations flattened in.
-            var image = ImageWithAnnotations(result);
-            var recognized = await ocr.RecognizeAsync(
-                image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy, ct);
-            text = recognized.Text;
-            Log.Info($"Translate: OCR read {recognized.Lines.Count} line(s) from the {result.Mode} capture.");
-        }
-        catch (OperationCanceledException)
-        {
-            // A newer operation superseded this one; its toast already owns the screen.
-            Log.Info("Translate: OCR cancelled before translation.");
-            OperationToastComplete(L.Get("Translate.Cancelled"));
-            EndOperation();
-            return;
-        }
-        catch (Exception ex)
-        {
-            Log.Error("OCR of the capture failed before translation", ex);
-            OperationToastComplete(L.Get("Ocr.Failed"));
-            Notify(L.Get("Translate.Title"), L.Get("Ocr.Failed"));
-            EndOperation();
-            return;
-        }
+            var ocr = Services.GetRequiredService<OcrService>();
+            if (!ocr.HasBundledModels)
+            {
+                Log.Error($"Translation needs OCR, but the models are missing under {ocr.BundleModelsDir}");
+                OperationToastComplete(L.Get("Ocr.Unavailable"));
+                Notify(L.Get("Translate.Title"), L.Get("Ocr.Unavailable"));
+                return;
+            }
 
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            OperationToastComplete(L.Get("Ocr.Empty"));
-            Notify(L.Get("Translate.Title"), L.Get("Ocr.Empty"));
-            EndOperation();
-            return;
-        }
+            string text;
+            try
+            {
+                // Same pixels the other direct outputs get: inline annotations flattened in.
+                var image = ImageWithAnnotations(result);
+                var recognized = await ocr.RecognizeAsync(
+                    image, Services.GetRequiredService<SettingsStore>().Current.Ocr.Accuracy, ct);
+                text = recognized.Text;
+                Log.Info($"Translate: OCR read {recognized.Lines.Count} line(s) from the {result.Mode} capture.");
+            }
+            catch (OperationCanceledException)
+            {
+                // The OCR-phase toast has no cancel button, so this OCE can only come from a
+                // superseding operation or app exit — the superseding operation owns the toast
+                // now, so close silently instead of stomping it with "Cancelled".
+                Log.Info("Translate: OCR cancelled before translation.");
+                OperationToastClose();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("OCR of the capture failed before translation", ex);
+                OperationToastComplete(L.Get("Ocr.Failed"));
+                Notify(L.Get("Translate.Title"), L.Get("Ocr.Failed"));
+                return;
+            }
 
-        // The model/engine phase is known-slow: show immediately, cancel button armed.
-        OperationToast(L.Get("Translate.Toast.LoadingEngine"), cancellable: true);
-        await TranslateAndShowAsync(text, ct);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                OperationToastComplete(L.Get("Ocr.Empty"));
+                Notify(L.Get("Translate.Title"), L.Get("Ocr.Empty"));
+                return;
+            }
+
+            await TranslateAndShowAsync(text, ct);
+        }
+        finally
+        {
+            // TranslateAndShowAsync ends the operation in its own finally too; EndOperation is
+            // idempotent, so the double call on the hand-off path is harmless.
+            EndOperation();
+        }
     }
 
     /// <summary>
@@ -105,9 +109,9 @@ public partial class App
                 (_, body) => OperationToast(body, cancellable: true), toast, ct);
             if (ensured != EnsureModelResult.Ready)
             {
-                // Failed already reported why through the toast above (null! = terminal, keeping
+                // Failed already reported why through the toast above (null = terminal, keeping
                 // that text); Declined (user said no to the download) and Cancelled both read as cancelled.
-                OperationToastComplete(ensured == EnsureModelResult.Failed ? null! : L.Get("Translate.Cancelled"));
+                OperationToastComplete(ensured == EnsureModelResult.Failed ? null : L.Get("Translate.Cancelled"));
                 return;
             }
 
@@ -181,7 +185,7 @@ public partial class App
                 (_, body) => OperationToast(body, cancellable: true), toast, ct);
             if (ensured != EnsureModelResult.Ready)
             {
-                OperationToastComplete(ensured == EnsureModelResult.Failed ? null! : L.Get("Translate.Cancelled"));
+                OperationToastComplete(ensured == EnsureModelResult.Failed ? null : L.Get("Translate.Cancelled"));
                 // The re-run died before producing a result: hand the swap button back to idle.
                 if (window.IsLoaded) window.RestoreSwapIdle();
                 return;
