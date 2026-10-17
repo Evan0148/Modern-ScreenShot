@@ -105,10 +105,21 @@ internal sealed class OverlayWindow : Window
         PreviewMouseLeftButtonDown += OnPreviewLeftButtonDown;
         PreviewMouseLeftButtonUp += OnPreviewLeftButtonUp;
         PreviewMouseMove += OnPreviewMouseMove;
-        PreviewMouseRightButtonDown += (_, e) => e.Handled = true;
+        PreviewMouseRightButtonDown += (_, e) =>
+        {
+            // The geometry entry toggles its flyout on right-click — let the press route to it.
+            if (IsOverGeometryButton(e)) return;
+            e.Handled = true;
+        };
         PreviewMouseRightButtonUp += (_, e) =>
         {
             e.Handled = true;
+            if (IsOverGeometryButton(e))
+            {
+                if (_geometryMenu is not null) CloseGeometryMenu();
+                else OpenGeometryMenu();
+                return;
+            }
             // Right-click over the open flyout (or the strip) dismisses it instead of the session.
             if (_geometryMenu is not null && (IsOverGeometryMenu(e) || IsOverToolbar(e)))
             {
@@ -549,6 +560,9 @@ internal sealed class OverlayWindow : Window
         _session.MarkOptionsChanged();
         _geometryButton.Content = EditorIcons.For(tool);
     }
+
+    private bool IsOverGeometryButton(MouseButtonEventArgs e) =>
+        e.OriginalSource is DependencyObject d && _geometryButton.IsAncestorOf(d);
 
     private bool IsOverGeometryMenu(MouseButtonEventArgs e) =>
         _geometryMenu is { } menu && e.OriginalSource is DependencyObject d && menu.IsAncestorOf(d);

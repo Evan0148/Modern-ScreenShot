@@ -50,6 +50,9 @@ public partial class EditorWindow : Window
     // The press already did its work (the StaysOpen=false popup closes itself on this outside
     // press) — the release must not immediately re-open it.
     private bool _geometryPressConsumed;
+    // TickCount when the flyout popup last closed; right-click toggling needs it to tell "the
+    // press just dismissed the popup" from "the popup was already closed".
+    private long _geometryPopupClosedAt;
 
     private readonly List<Button> _swatches = [];
     private readonly Dictionary<Button, string> _swatchHex = [];
@@ -292,6 +295,16 @@ public partial class EditorWindow : Window
                 OpenGeometryMenu();
             }
         };
+        // Right-click on the entry toggles the flyout as well. While the popup is open it has
+        // mouse capture, so the right-DOWN never reaches this button — the popup closes itself
+        // (outside press) and only the UP arrives here; the recency guard stops that up from
+        // re-opening what the press just dismissed.
+        _geometryButton.MouseRightButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            if (_geometryPopupClosedAt != 0 && Environment.TickCount64 - _geometryPopupClosedAt < 300) return;
+            OpenGeometryMenu();
+        };
         _geometryHoldTimer.Tick += (_, _) =>
         {
             _geometryHoldTimer.Stop();
@@ -344,6 +357,7 @@ public partial class EditorWindow : Window
                 PopupAnimation = PopupAnimation.Fade,
                 Child = _geometryMenu,
             };
+            _geometryPopup.Closed += (_, _) => _geometryPopupClosedAt = Environment.TickCount64;
         }
         _geometryMenu!.Refresh();
         _geometryPopup!.IsOpen = true;
