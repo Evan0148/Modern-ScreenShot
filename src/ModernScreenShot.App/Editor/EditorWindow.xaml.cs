@@ -186,6 +186,7 @@ public partial class EditorWindow : Window
         _canvas.SelectionChanged += (_, _) => { UpdatePropertyPanel(); RefreshSelectionButtons(); };
         _canvas.TextEditRequested += (_, e) => OpenTextOverlay(e.Existing, e.Position);
         _canvas.ZoomRequested += CanvasOnZoomRequested;
+        _canvas.PreviewMouseWheel += CanvasOnPreviewMouseWheel;
         _canvas.Undo.Changed += (_, _) => RefreshUndoRedo();
 
         CanvasHost.Children.Add(_canvas);
@@ -1030,6 +1031,55 @@ public partial class EditorWindow : Window
         _canvas.SetZoom(oldZoom * factor);
         AfterZoomChanged(oldZoom, e.ImagePoint);
     }
+
+    /// <summary>Plain wheel over the canvas nudges the active tool's size slider (thickness / font
+    /// size / step radius / mosaic strength) — or, while the Select tool holds a selection, the
+    /// size knob of THAT item, so scrolling resizes the current object and not just future
+    /// strokes. Going through the slider keeps the panel, the canvas default and the selected item
+    /// in sync, with the slider's own undo handling per notch (same as its arrow keys). Ctrl+wheel
+    /// stays zoom, handled by the canvas itself; the property panel's own scroll is untouched
+    /// because this is attached to the canvas, not the window.</summary>
+    private void CanvasOnPreviewMouseWheel(object? sender, MouseWheelEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.None || e.Delta == 0) return;
+        var slider = _canvas.Tool == EditorTool.Select && _canvas.Selected is { } sel
+            ? SliderForItem(sel)
+            : SliderForTool(_canvas.Tool);
+        if (slider is null) return;
+        double step = slider == _fontSizeSlider || slider == _stepRadiusSlider ? 2 : 1;
+        double target = Math.Clamp(slider.Value + Math.Sign(e.Delta) * step, slider.Minimum, slider.Maximum);
+        if (Math.Abs(target - slider.Value) > 0.001)
+        {
+            slider.Value = target; // the slider's ValueChanged applies the new size
+            if (slider == _fontSizeSlider && _textOverlay is not null)
+            {
+                _textOverlayBaseFontSize = _canvas.FontSize; // keep the open text box WYSIWYG
+                PositionTextOverlay();
+            }
+        }
+        e.Handled = true;
+    }
+
+    private Slider? SliderForTool(EditorTool tool) => tool switch
+    {
+        EditorTool.Rect or EditorTool.Ellipse or EditorTool.Line or EditorTool.Arrow
+            or EditorTool.Pen or EditorTool.Highlighter => _thicknessSlider,
+        EditorTool.Text => _fontSizeSlider,
+        EditorTool.Step => _stepRadiusSlider,
+        EditorTool.Mosaic => _strengthSlider,
+        _ => null,
+    };
+
+    /// <summary>The size knob shown for a selected item — mirrors ShowForItem's section visibility.</summary>
+    private Slider? SliderForItem(AnnotationItem item) => item switch
+    {
+        MosaicItem => _strengthSlider,
+        TextItem => _fontSizeSlider,
+        StepItem => _stepRadiusSlider,
+        SpotlightItem => _dimSlider,
+        MagnifierItem => _magZoomSlider,
+        _ => _thicknessSlider, // Rect/Ellipse/Line/Arrow/Pen/Highlighter
+    };
 
     private void AfterZoomChanged(double oldZoom, PointD imageAnchor)
     {
