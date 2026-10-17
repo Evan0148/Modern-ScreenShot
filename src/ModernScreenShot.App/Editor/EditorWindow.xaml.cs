@@ -120,8 +120,10 @@ public partial class EditorWindow : Window
             wa = new Rect(m.WorkArea.X / scale, m.WorkArea.Y / scale,
                 m.WorkArea.Width / scale, m.WorkArea.Height / scale);
         }
-        Width = Math.Min(1400, Math.Max(640, wa.Width * 0.92));
-        Height = Math.Min(920, Math.Max(420, wa.Height * 0.92));
+        // 92% of that work area, with NO fixed DIP cap — the old 1400x920 cap kept a 2560px
+        // full-screen capture at ~43% zoom inside a sea of empty canvas on large/hi-DPI monitors.
+        Width = Math.Max(640, wa.Width * 0.92);
+        Height = Math.Max(420, wa.Height * 0.92);
         Title = L.Get("Editor.Title");
         if (_targetMonitor is not null)
         {
@@ -192,7 +194,15 @@ public partial class EditorWindow : Window
         CanvasHost.Children.Add(_canvas);
         if (_document is not null) _canvas.LoadDocument(_document);
         Loaded += (_, _) => FitZoom();
+        // A cross-monitor capture moves this window across a DPI boundary inside
+        // SourceInitialized's SetWindowPos — the first layout can still report the old scale
+        // (the same mid-crossing hazard the overlay help card hit). Until the user picks a zoom
+        // deliberately, every size change (including the DPI rescale) re-fits the image.
+        SizeChanged += (_, _) => { if (!_userZoomed) FitZoom(); };
     }
+
+    /// <summary>Set by manual zoom actions; stops the auto-refit from fighting the user's zoom.</summary>
+    private bool _userZoomed;
 
     // Dark toolbar strip shared with the capture overlay's vocabulary — icon tools, white glyphs.
     private static readonly Brush ToolbarBackBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2E)));
@@ -1001,6 +1011,7 @@ public partial class EditorWindow : Window
 
     private void ZoomBy(double factor)
     {
+        _userZoomed = true;
         // The ScrollViewer centers content smaller than the viewport, so the canvas's left edge
         // sits at (viewport − content)/2 while the offset stays 0 — without that gap the anchor
         // misses by up to half the empty space and the zoom visibly jumps to the wrong area.
@@ -1026,6 +1037,7 @@ public partial class EditorWindow : Window
 
     private void CanvasOnZoomRequested(object? sender, ZoomRequestEventArgs e)
     {
+        _userZoomed = true;
         double factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
         double oldZoom = _canvas.Zoom;
         _canvas.SetZoom(oldZoom * factor);
