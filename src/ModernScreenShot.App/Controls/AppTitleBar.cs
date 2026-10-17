@@ -36,6 +36,8 @@ public sealed class AppTitleBar : Border
 {
     private const int DwmwaWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
     private const int DwmwcpRound = 2; // DWMWCP_ROUND
+    private const int DwmwaNcRenderingPolicy = 2; // DWMWA_NCRENDERING_POLICY
+    private const int DwmncrpDisabled = 3; // DWMNCRP_DISABLED
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -227,6 +229,7 @@ public sealed class AppTitleBar : Border
         // the work area (otherwise maximized content overflows and the caption buttons clip).
         window.SourceInitialized += (_, _) =>
         {
+            ApplyNonClientRenderingPolicy(window);
             ApplyRoundedCorners(window);
             // Only maximizable windows need the clamp. On a NoResize/CanMinimize window (the
             // SizeToContent hotkey dialog) the ptMaxTrackSize clamp would cap its auto height and
@@ -240,7 +243,11 @@ public sealed class AppTitleBar : Border
             if (FindTitleBar(window) is { } bar) bar.InstallSnapHook(window);
             else window.Loaded += (_, _) => FindTitleBar(window)?.InstallSnapHook(window);
         };
-        if (window.IsLoaded) ApplyRoundedCorners(window); // Attach ran after SourceInitialized
+        if (window.IsLoaded)
+        {
+            ApplyNonClientRenderingPolicy(window); // Attach ran after SourceInitialized
+            ApplyRoundedCorners(window);
+        }
         return chrome;
     }
 
@@ -265,6 +272,52 @@ public sealed class AppTitleBar : Border
         handled = true;
         return IntPtr.Zero;
     }
+
+    /// <summary>
+    /// Tells DWM to never paint the window's non-client area. Everything the OS would draw there
+    /// (caption buttons, frame) is already custom-drawn, and a long-standing WPF race
+    /// (dotnet/wpf#3675, Stack Overflow 67886906) lets DWM occasionally paint its own
+    /// Windows-Basic-style caption over custom-chrome windows. Disabling NC rendering removes
+    /// only that paint; the DWM shadow and Win11 corner rounding are compositor features and
+    /// stay. Chromium sets the same attribute for the same reason.
+    /// </summary>
+    private static void ApplyNonClientRenderingPolicy(Window window)
+    {
+        // DWMWA_NCRENDERING_POLICY is set-only (the GET is E_INVALIDARG on current builds), so the
+        // apply HRESULT is kept per-hwnd for the title-bar probe instead of a readback.
+        int hr = -1;
+        try
+        {
+            if (!window.AllowsTransparency) // layered window: no non-client area at all
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    int policy = DwmncrpDisabled;
+                    hr = DwmSetWindowAttribute(hwnd, DwmwaNcRenderingPolicy, ref policy, sizeof(int));
+                    NcRenderingApplyResults[hwnd] = hr;
+                    if (hr != 0)
+                        ModernScreenShot.App.Services.Log.Warn($"DWM NC rendering suppression failed: hr=0x{hr:X}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ModernScreenShot.App.Services.Log.Warn($"DWM NC rendering suppression threw: {ex.Message}");
+        }
+        var windowHandle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        NcRenderingApplyResults[windowHandle] = hr;
+    }
+
+    /// <summary>The HRESULT of the DWMWA_NCRENDERING_POLICY apply for the window's handle
+    /// (0 = suppression in effect, -1 = skipped, e.g. layered windows); used by the probe.</summary>
+    internal static int GetAppliedNcRenderingHr(Window window)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        return hwnd != IntPtr.Zero && NcRenderingApplyResults.TryGetValue(hwnd, out var hr) ? hr : -2;
+    }
+
+    private static readonly Dictionary<IntPtr, int> NcRenderingApplyResults = new();
 
     private static void ApplyRoundedCorners(Window window)
     {

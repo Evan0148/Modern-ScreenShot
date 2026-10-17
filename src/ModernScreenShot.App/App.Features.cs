@@ -478,6 +478,7 @@ public partial class App
             $"TBPROBE state={state}",
             $"TBPROBE hwnd=0x{hwnd.ToInt64():X}",
             $"TBPROBE os={Environment.OSVersion.Version}",
+            $"TBPROBE ncrendering-applied=0x{AppTitleBar.GetAppliedNcRenderingHr(win):X} corner={NativeMethods.GetCornerPreference(hwnd)} (2=round)",
         };
 
         var bar = FindDescendants<AppTitleBar>(win).FirstOrDefault();
@@ -864,7 +865,7 @@ public partial class App
         // --translate-test is the check that actually exercises the engine.
         var translationWindow = new TranslationResultWindow(
             new TranslationOutcome("smoke", "冒烟", "zh", 1),
-            services.GetRequiredService<ClipboardService>(), autoCopy: false, "Chinese");
+            services.GetRequiredService<ClipboardService>(), autoCopy: false);
         translationWindow.Close();
         if (!TranslationEngine.IsRuntimeInstalled)
             Log.Warn($"smoke: the llama.cpp runtime is not installed under {TranslationEngine.RuntimeDir}; "

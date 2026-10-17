@@ -163,6 +163,8 @@ public static class NativeMethods
 
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     public const int DWMWA_CLOAKED = 14;
+    public const int DWMWA_NCRENDERING_POLICY = 2;
+    public const int DWMNCRP_DISABLED = 3; // never let DWM paint the (possibly Windows Basic) non-client area
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
     public const int DWMWCP_DEFAULT = 0, DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2, DWMWCP_ROUNDSMALL = 3;
 
@@ -296,6 +298,7 @@ public static class NativeMethods
 
     public static int GetCornerPreference(IntPtr hwnd) =>
         DwmGetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, out int v, sizeof(int)) == 0 ? v : DWMWCP_DEFAULT;
+
 
     public static BITMAPINFO CreateTopDownBitmapInfo(int width, int height) => new()
     {
