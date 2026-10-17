@@ -121,7 +121,6 @@ internal static class AnnotationRenderer
     {
         var brush = BrushFor(a.StrokeColor);
         double th = Math.Max(1, a.StrokeThickness);
-        double head = Math.Max(th * 3.2, 10);
         var start = new Point(a.Start.X, a.Start.Y);
         var end = new Point(a.End.X, a.End.Y);
         var d = end - start;
@@ -130,27 +129,42 @@ internal static class AnnotationRenderer
         d /= len;
         var perp = new Vector(-d.Y, d.X);
 
-        var lineStart = a.DoubleHeaded ? start + d * head * 0.8 : start;
-        var lineEnd = end - d * head * 0.8;
-        dc.DrawLine(StrokePen(a.StrokeColor, th, a.Dashed), lineStart, lineEnd);
-        DrawHead(start, a.DoubleHeaded ? -d : d);
-        if (a.DoubleHeaded) DrawHead(end, d);
-        return;
+        // The head sits at the drag END (the release point), like every other screenshot tool.
+        // Short arrows get a proportionally smaller head so it never swamps the shaft.
+        double scale = ArrowItem.HeadScale(len, th);
+        double headLen = ArrowItem.HeadLength(th) * scale;
+        double headW = ArrowItem.HeadHalfWidth(th) * scale;
 
-        void DrawHead(Point tip, Vector dir)
+        // Dart-shaped head: tip, two base corners and a back notch. The base is much wider than
+        // the shaft, so the joint is covered; the shaft terminates in the notch.
+        Point DrawHead(Point tip, Vector dir)
         {
-            var baseCenter = tip - dir * head;
-            var p1 = baseCenter + perp * head * 0.42;
-            var p2 = baseCenter - perp * head * 0.42;
+            var c1 = tip - dir * headLen + perp * headW;
+            var c2 = tip - dir * headLen - perp * headW;
+            var notch = tip - dir * headLen * ArrowItem.NotchRatio;
             var geo = new StreamGeometry();
             using (var ctx = geo.Open())
             {
                 ctx.BeginFigure(tip, true, true);
-                ctx.LineTo(p1, true, false);
-                ctx.LineTo(p2, true, false);
+                ctx.LineTo(c1, true, false);
+                ctx.LineTo(notch, true, false);
+                ctx.LineTo(c2, true, false);
             }
             dc.DrawGeometry(brush, null, geo);
+            return notch;
         }
+
+        var shaftStart = a.DoubleHeaded ? DrawHead(start, -d) : start;
+        var shaftEnd = DrawHead(end, d);
+        var pen = new Pen(brush, th)
+        {
+            // A round cap at the head side would poke past the dart's notch; the free tail stays round.
+            StartLineCap = a.DoubleHeaded ? PenLineCap.Flat : PenLineCap.Round,
+            EndLineCap = PenLineCap.Flat,
+            LineJoin = PenLineJoin.Round,
+        };
+        if (a.Dashed) pen.DashStyle = new DashStyle([3, 2], 0);
+        dc.DrawLine(pen, shaftStart, shaftEnd);
     }
 
     private static void DrawPen(DrawingContext dc, PenItem item, bool flatCaps)
@@ -288,15 +302,48 @@ internal static class AnnotationRenderer
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    private static double Dist(PointD a, PointD b)
+    {
+        double dx = a.X - b.X, dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>True when p falls inside a head's base triangle (tip + two base corners), loosened
+    /// by the eraser tolerance. Mirrors DrawArrow's geometry, including the short-arrow shrink.</summary>
+    private static bool HeadTriangleContains(PointD tip, PointD from, double thickness, double scale, PointD p)
+    {
+        double dx = tip.X - from.X, dy = tip.Y - from.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return false;
+        double ux = dx / len, uy = dy / len, px = -uy, py = ux;
+        double l = ArrowItem.HeadLength(Math.Max(1, thickness)) * scale;
+        double hw = ArrowItem.HeadHalfWidth(Math.Max(1, thickness)) * scale;
+        var c1 = new PointD(tip.X - ux * l + px * hw, tip.Y - uy * l + py * hw);
+        var c2 = new PointD(tip.X - ux * l - px * hw, tip.Y - uy * l - py * hw);
+        double s1 = Cross(c1.X - tip.X, c1.Y - tip.Y, p.X - tip.X, p.Y - tip.Y);
+        double s2 = Cross(c2.X - c1.X, c2.Y - c1.Y, p.X - c1.X, p.Y - c1.Y);
+        double s3 = Cross(tip.X - c2.X, tip.Y - c2.Y, p.X - c2.X, p.Y - c2.Y);
+        return (s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0);
+    }
+
+    private static double Cross(double ax, double ay, double bx, double by) => ax * by - ay * bx;
+
     /// <summary>
     /// Geometry-aware hit test for the eraser: true stroke geometry for lines/pens (a shallow
-    /// diagonal's bounding box is far larger than its ink), circle for the magnifier callout,
-    /// bounding box for area shapes. <paramref name="tol"/> is in image pixels.
+    /// diagonal's bounding box is far larger than its ink), the head triangles for arrows,
+    /// circle for the magnifier callout, bounding box for area shapes. <paramref name="tol"/> is in image pixels.
     /// </summary>
     public static bool HitsForErase(AnnotationItem item, PointD p, double tol)
     {
         switch (item)
         {
+            case ArrowItem a: // ArrowItem : LineItem — must precede LineItem
+                if (DistanceToSegment(p, a.Start, a.End) <= a.StrokeThickness / 2 + tol) return true;
+                double alen = Dist(a.Start, a.End);
+                double ascale = ArrowItem.HeadScale(alen, Math.Max(1, a.StrokeThickness));
+                if (HeadTriangleContains(a.End, a.Start, a.StrokeThickness, ascale, p)) return true;
+                if (a.DoubleHeaded && HeadTriangleContains(a.Start, a.End, a.StrokeThickness, ascale, p)) return true;
+                return false;
             case LineItem l:
                 return DistanceToSegment(p, l.Start, l.End) <= l.StrokeThickness / 2 + tol;
             case PenItem pen:

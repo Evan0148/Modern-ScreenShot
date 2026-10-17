@@ -84,6 +84,51 @@ public class LineItem : AnnotationItem
 public sealed class ArrowItem : LineItem
 {
     public bool DoubleHeaded { get; set; }
+
+    /// <summary>Arrowhead length in image px: scales with the stroke thickness, floored so even a
+    /// thin stroke gets a legible head.</summary>
+    public static double HeadLength(double thickness) => Math.Max(thickness * 3.6, 16);
+
+    /// <summary>Half width of the head's base — about the head's length, so it reads as an arrow
+    /// instead of a spike and cleanly covers the shaft where they join.</summary>
+    public static double HeadHalfWidth(double thickness) => HeadLength(thickness) * 0.52;
+
+    /// <summary>The back notch of the dart-shaped head, as a fraction of the head length measured
+    /// from the tip; the shaft terminates there.</summary>
+    public const double NotchRatio = 0.55;
+
+    /// <summary>Shrinks the head for short arrows so the head never swamps the shaft (the head may
+    /// take at most ~60% of the arrow's length).</summary>
+    public static double HeadScale(double length, double thickness) =>
+        Math.Clamp(length * 0.6 / HeadLength(thickness), 0, 1);
+
+    /// <summary>Bounds cover the heads: the dart overhangs the tip and widens past the shaft.</summary>
+    public override RectD GetBounds()
+    {
+        double l = Math.Min(Start.X, End.X), t = Math.Min(Start.Y, End.Y);
+        double r = Math.Max(Start.X, End.X), b = Math.Max(Start.Y, End.Y);
+        ExpandForHead(ref l, ref t, ref r, ref b, End, Start);
+        if (DoubleHeaded) ExpandForHead(ref l, ref t, ref r, ref b, Start, End);
+        return new RectD(l, t, r - l, b - t);
+    }
+
+    private void ExpandForHead(ref double l, ref double t, ref double r, ref double b, PointD tip, PointD from)
+    {
+        double dx = tip.X - from.X, dy = tip.Y - from.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return;
+        double hl = HeadLength(StrokeThickness), hw = HeadHalfWidth(StrokeThickness);
+        double ux = dx / len, uy = dy / len, px = -uy, py = ux;
+        // The extreme head points are the tip (counted already) and the two base corners.
+        foreach (var (back, side) in new[] { (hl, 0d), (hl, hw), (hl, -hw) })
+        {
+            double x = tip.X - ux * back + px * side, y = tip.Y - uy * back + py * side;
+            l = Math.Min(l, x);
+            t = Math.Min(t, y);
+            r = Math.Max(r, x);
+            b = Math.Max(b, y);
+        }
+    }
 }
 
 public class PenItem : AnnotationItem
