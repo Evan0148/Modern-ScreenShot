@@ -28,7 +28,7 @@ public partial class TranslationResultWindow : Window
 
     public TranslationResultWindow(
         TranslationOutcome outcome, ClipboardService clipboard, bool autoCopy,
-        string targetName, bool canSwap = true)
+        string? targetName = null, bool canSwap = true)
     {
         InitializeComponent();
         AppTitleBar.Attach(this);
